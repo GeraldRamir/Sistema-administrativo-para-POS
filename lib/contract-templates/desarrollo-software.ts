@@ -141,6 +141,136 @@ export function buildDesarrolloSoftwareContractPdfBody(data: DesarrolloSoftwareI
 
 export const CONTRATO_PDF_NOTA_PIE = "Borrador generado en POS Ops. No constituye asesoría legal.";
 
+/** Estructura para un PDF formal (secciones, partes, cierre). */
+export type DesarrolloSoftwarePdfModel = {
+  mainTitle: string;
+  documentKind: string;
+  leadIn: string;
+  partyRows: { label: string; role: string; name: string }[];
+  sections: { title: string; paragraphs: string[] }[];
+  closing: string[];
+};
+
+/**
+ * Mismo contenido que el contrato, organizado en bloques para renderizado con diseño fijo.
+ */
+export function getDesarrolloSoftwareContractPdfModel(data: DesarrolloSoftwareInput): DesarrolloSoftwarePdfModel {
+  const tec = data.tecnologias?.trim();
+  const modulos = data.modulos.trim();
+  const fechaEntregaTexto = data.fechaEntrega?.trim()
+    ? `Fecha de entrega estimada: ${fmtDate(data.fechaEntrega.trim())}.`
+    : "La fecha de entrega final se coordinará según el plan de trabajo aprobado y la disponibilidad oportuna de insumos por EL CLIENTE.";
+
+  const penal = data.penalidadAtrasoPago?.trim();
+  const incumplimientoEx = penal
+    ? ` Asimismo, las partes dejan asentado lo siguiente respecto de la mora o atraso en el pago: ${penal}`
+    : "";
+
+  return {
+    mainTitle: "CONTRATO DE DESARROLLO DE SOFTWARE",
+    documentKind: "Documento privado · Borrador (revisar con asesoría legal)",
+    leadIn: `Entre ${data.empresaDesarrolladora}, en adelante «EL DESARROLLADOR», y ${data.clienteEmpresa}, en adelante «EL CLIENTE» —cuyas representaciones constan al pie de la presente—, se celebra el contrato que a continuación se describe, el cual vinculará a las partes, en adelante, individualmente, la «Parte» o, en conjunto, las «Partes», según las cláusulas y condiciones siguientes.`,
+
+    partyRows: [
+      { label: "EL DESARROLLADOR", role: "Razón o denominación", name: data.empresaDesarrolladora },
+      { label: "", role: "Por", name: data.representanteDesarrollador },
+      { label: "EL CLIENTE", role: "Razón o denominación", name: data.clienteEmpresa },
+      { label: "", role: "Por", name: data.nombreCliente },
+    ],
+
+    sections: [
+      {
+        title: "PRIMERO. De la identidad de las partes y de la representación",
+        paragraphs: [
+          "Las partes dejan asentada su capacidad jurídica, según el caso, para asumir los compromisos y obligaciones derivados de este acto, sin perjuicio de la aportación de constancias adicionales que, según exija la ley, la banca o la naturaleza del pago, procedan acompañar.",
+        ],
+      },
+      {
+        title: "SEGUNDO. Del objeto, alcance y referencias técnicas",
+        paragraphs: [
+          "EL DESARROLLADOR se obliga frente a EL CLIENTE a prestar, según se acuerde, el servicio de análisis, diseño, desarrollo, pruebas y, en su caso, despliegue, en adelante, el «Proyecto» o el «Sistema», materializado en términos enunciatos en el siguiente resumen (sin perjuicio de anexar especificaciones levantadas en fases posteriores):",
+          data.proyecto,
+          lineOrBlock(
+            "Sobre el alcance funcional, módulos y entregables, ha de regir, en lo sustancial, la siguiente descripción, salvo acuerdo escrito distinto:\n\n",
+            modulos,
+            "Por este borrador, el detalle de alcance funcional o de módulos habrá de completarse, sin perjuicio de lo aceptado por escrito, ulteriormente.",
+          ),
+          tec && tec.length
+            ? "Sobre requisitos técnicos, stack, integraciones, ambientes, versiones o tercerización, se toma nota, en lo mínimamente informativo, de lo que sigue, sin prejuzgar tareas adicionales no incluidas, salvo anexos:\n\n" + tec
+            : "Sobre requisitos técnicos, stack, integraciones o ambientes, no se inserta, en el presente borrador, otra nota, debiendo precisarse en anexos, cuando a ello haya lugar.",
+        ],
+      },
+      {
+        title: "TERCERO. Del precio, de la facturación y de la forma de pago",
+        paragraphs: [
+          "Como retribución por el servicio objeto de este contrato, EL CLIENTE se obliga a abonar a EL DESARROLLADOR la suma y en la forma en que, en lo sustancial, se señala a continuación, sin perjuicio de ajustes documentados y aceptados por anexo, cuando a ello haya lugar.",
+          `Monto total pactado: ${data.montoTotal}.`,
+          `Pago inicial: ${data.inicial}.`,
+          `Restante, cuotas u otra mecánica acordada: ${data.cuotas}.`,
+          "La ejecución material de los pagos se regirá por medios, cuentas, moneda y requisitos que las partes fijen por escrito, complementariamente, cuando sea necesario.",
+        ],
+      },
+      {
+        title: "CUARTO. De los plazos y la coordinación de entregas",
+        paragraphs: [
+          `El plazo de ejecución estimado para el desarrollo y puesta a disposición, expresada en días hábiles, asciende a ${String(
+            data.diasHabiles,
+          )} días, contados a partir de la fecha de referencia ${fmtDate(
+            data.fechaInicio,
+          )}, sin perjuicio de ajustes razonables vinculados a la recepción oportuna de información, accesos e insumos a cargo de EL CLIENTE.`,
+          fechaEntregaTexto,
+        ],
+      },
+      {
+        title: "QUINTO. De variaciones, cambios y alcance adicional",
+        paragraphs: [
+          "Cualquier modificación, adición, ampliación o requerimiento de alcance claramente ajeno a lo aceptado en el SEGUNDO título, en sus apartados, tendrá, salvo acuerdo expreso y escrito, costo, forma de pago y, en su caso, plazo adicionales, los cuales deberán documentarse, previa aceptación, mediante propuesta, adenda o anexo, según el caso.",
+        ],
+      },
+      {
+        title: "SEXTO. De la propiedad intelectual, licencias de terceros y entregables",
+        paragraphs: [
+          "La titularidad del código, entregables, documentación asociada al Proyecto y, en concreto, de los activos cuya titularidad corresponde según ley y uso comercial, quedará determinada según se indica a continuación, una vez acreditado el pago o los hitos convenidos, según se aplique:\n" +
+            data.quienPoseeCodigo,
+          "Las dependencias, bibliotecas, componentes o recursos bajo licencia pública, de terceros o bajo términos de uso restringido conservan sus términos y limitaciones, sin perjuicio de lo acordado entre las partes.",
+        ],
+      },
+      {
+        title: "SÉPTIMO. De la confidencialidad",
+        paragraphs: [
+          "Las partes deberán guardar reserva, respecto de la información técnica, comercial o de negocio obtenida en virtud o con motivo del presente acto, salvo obligación de revelar conforme a ley o a requerimiento de autoridad, debidamente fundada, o previo consentimiento, según el caso, sin perjuicio de lo adicional en anexos de confidencialidad independientes, cuando a ello haya lugar.",
+        ],
+      },
+      {
+        title: "OCTAVO. Del soporte post-entrega",
+        paragraphs: [
+          `Salvo acuerdo distinto por anexo, se entiende incluido, por un término de ${String(
+            data.mesesSoporte,
+          )} meses, soporte o asistencia técnica, en canales, horas y limitaciones, que podrán precisarse, en su caso, en anexo, política o aceptación escrita. Transcurrido el plazo, su renovación, contratación a parte, o el cese, en su caso, quedará sujeto, entonces, a lo de común acuerdo.`,
+        ],
+      },
+      {
+        title: "NOVENO. Del incumplimiento, resolución y mecanismos de suspensión",
+        paragraphs: [
+          "En caso de atraso o incumplimiento, según su naturaleza, en el abono, podrá, sin perjuicio de lo demás que proveyere la ley, proceder, previa oportunidad, según se estipule, la suspensión razonable del avance, la entrega o de ciertos soportes, mientras se regularice, salvo excepción prevista por escrito." + incumplimientoEx,
+        ],
+      },
+      {
+        title: "DÉCIMO. De la ley, jurisdicción y cierre",
+        paragraphs: [
+          "Para el efecto, interpretación, cumplimiento, liquidación, rescisión, extinción o cuestiones derivadas, las partes se someten, en términos de competencia, a lo previsto, en concreto, con respecto a: " + data.jurisdiccion + ".",
+        ],
+      },
+    ],
+    closing: [
+      "En señal de aceptación y para constancia, las partes dejan asentada la buena fe en la relación, sin perjuicio de ajustar anexos, técnicas y documentación complementaria que, en ley, proceda.",
+      `Dado, firmado, en o con efectos de: ${fmtDate(
+        data.fechaHoy,
+      )}. Las rúbricas, firmas de colaboradores o sellos, cuando correspondan, se hacen en la hoja de firmas a continuación.`,
+    ],
+  };
+}
+
 export function desarrolloSoftwareFileName(proyecto: string, ext: "txt" | "pdf" = "txt"): string {
   const safe = proyecto
     .trim()
