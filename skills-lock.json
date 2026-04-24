@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "lawyer-expert": {
+      "source": "personamanagmentlayer/pcl",
+      "sourceType": "github",
+      "computedHash": "bab82ef6bd75e1e25db9350428e5e76fa10a44789be9529761bccb97a7622201"
+    }
+  }
+}
