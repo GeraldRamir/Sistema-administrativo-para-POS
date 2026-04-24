@@ -56,6 +56,8 @@ export const desarrolloSoftwareContractSchema = z.object({
   nombreCliente: z.string().min(1).max(200),
   proyecto: z.string().min(1).max(500),
   modulos: z.string().min(1).max(20000),
+  /** Referencia informativa para leer montos (DOP, USD o libre en el texto) */
+  monedaReferencia: z.enum(["DOP", "USD", "LIBRE"]),
   montoTotal: z.string().min(1).max(200),
   inicial: z.string().min(1).max(200),
   cuotas: z.string().min(1).max(2000),
@@ -68,4 +70,17 @@ export const desarrolloSoftwareContractSchema = z.object({
   penalidadAtrasoPago: z.string().max(2000).optional().or(z.literal("")),
   jurisdiccion: z.string().min(1).max(500),
   fechaHoy: z.string().min(1).max(32),
-});
+})
+  .refine(
+    (d) => {
+      const ent = d.fechaEntrega?.trim() ?? "";
+      if (!ent) {
+        return true;
+      }
+      return ent >= d.fechaInicio;
+    },
+    {
+      message: "La fecha de entrega no puede ser anterior a la fecha de inicio.",
+      path: ["fechaEntrega"],
+    },
+  );

@@ -15,21 +15,40 @@ export function PageHeader({ title, description, actions }: { title: string; des
   );
 }
 
-export function FormAlert({ type, message }: { type: "ok" | "err"; message: string }) {
+export function FormAlert({
+  type,
+  message,
+  fieldErrors,
+}: {
+  type: "ok" | "err";
+  message: string;
+  /** Mapea nombre de campo (Zod) → etiqueta y mensaje para listas legibles. */
+  fieldErrors?: { fieldKey: string; fieldLabel: string; message: string }[];
+}) {
   if (!message) {
     return null;
   }
   return (
-    <p
-      role="alert"
+    <div
+      role="status"
+      aria-live={type === "err" ? "assertive" : "polite"}
       className={
         type === "ok"
           ? "rounded-md border border-success/30 bg-success/5 px-3 py-2 text-sm text-foreground"
           : "rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-foreground"
       }
     >
-      {message}
-    </p>
+      <p className="font-medium">{message}</p>
+      {type === "err" && fieldErrors && fieldErrors.length > 0 ? (
+        <ul className="mt-2 list-inside list-disc text-sm" aria-label="Errores por campo">
+          {fieldErrors.map((e) => (
+            <li key={e.fieldKey}>
+              <span className="text-muted-foreground">{e.fieldLabel}:</span> {e.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

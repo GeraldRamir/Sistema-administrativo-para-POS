@@ -3,35 +3,157 @@
 import { useActionState, useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { generateContractAction, type ContractGenerateState } from "@/app/actions/contracts";
 import { CONTRACT_CATALOG, type ContractTemplateId } from "@/lib/contract-templates/types";
-import { FormAlert, inputClass, Label, labelBoxClass, PrimaryButton, selectClass, Card, Muted } from "./form-primitives";
+import {
+  FormAlert,
+  GhostButton,
+  inputClass,
+  Label,
+  labelBoxClass,
+  PrimaryButton,
+  selectClass,
+  Card,
+  Muted,
+} from "./form-primitives";
+import { ContractRichTextField } from "./contract-rich-text-field";
 import { SignaturePad, type SignaturePadHandle } from "./signature-pad";
+
+const STORAGE_KEY = "sistema-admin-pos:contrato-desarrollo-borrador";
+const PASTE_HELP =
+  "Al copiar desde Word o Excel, use «Pegar y limpiar» o pegue con Ctrl+Mayús+V (pegar sin formato) en el recuadro, para evitar guiones invisibles y símbolos raros en el PDF.";
+
+const ZOD_FIELD_LABELS: Record<string, string> = {
+  empresaDesarrolladora: "Empresa del proveedor (PRESTADOR)",
+  representanteDesarrollador: "Representante del proveedor",
+  clienteEmpresa: "Empresa del cliente (EL CLIENTE)",
+  nombreCliente: "Nombre del representante del cliente",
+  proyecto: "Nombre del proyecto o sistema",
+  modulos: "Módulos y alcance",
+  monedaReferencia: "Moneda de referencia",
+  montoTotal: "Monto total",
+  inicial: "Pago inicial",
+  cuotas: "Cuotas / restante a pagar",
+  diasHabiles: "Días hábiles de desarrollo",
+  fechaInicio: "Fecha de inicio",
+  fechaEntrega: "Fecha de entrega estimada",
+  tecnologias: "Tecnologías",
+  mesesSoporte: "Meses de soporte",
+  quienPoseeCodigo: "Titularidad del código",
+  penalidadAtrasoPago: "Penalidad por atraso de pago",
+  jurisdiccion: "Jurisdicción / leyes aplicables",
+  fechaHoy: "Fecha de firma del documento",
+};
+
+const STEPS = [
+  { id: 0, title: "Partes" },
+  { id: 1, title: "Proyecto y alcance" },
+  { id: 2, title: "Precio y moneda" },
+  { id: 3, title: "Plazos" },
+  { id: 4, title: "Soporte, IP y riesgos" },
+  { id: 5, title: "Fecha de firma" },
+  { id: 6, title: "Firmas (comercial — PDF)" },
+] as const;
+
+const lastStep = STEPS.length - 1;
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+const staticDefaults = (): Record<string, string> => {
+  const t = todayStr();
+  return {
+    diasHabiles: "90",
+    mesesSoporte: "3",
+    fechaInicio: t,
+    fechaHoy: t,
+    quienPoseeCodigo: "EL CLIENTE, una vez completado el pago total acordado",
+    jurisdiccion: "República Dominicana",
+    monedaReferencia: "DOP",
+  };
+};
+
+const readDraft = (): { values: Record<string, string>; numFirmas: 1 | 2 | 3 } => {
+  if (typeof window === "undefined") {
+    return { values: staticDefaults(), numFirmas: 3 };
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return { values: staticDefaults(), numFirmas: 3 };
+    }
+    const p = JSON.parse(raw) as Record<string, string>;
+    const n = parseInt(p.numFirmas ?? "3", 10);
+    const numFirmas: 1 | 2 | 3 = n === 1 || n === 2 ? n : 3;
+    const { numFirmas: _nf, ...rest } = p;
+    return { values: { ...staticDefaults(), ...rest }, numFirmas };
+  } catch {
+    return { values: staticDefaults(), numFirmas: 3 };
+  }
+};
+
+const computeLens = (d: Record<string, string>) => ({
+  empresaDesarrolladora: (d.empresaDesarrolladora ?? "").length,
+  representanteDesarrollador: (d.representanteDesarrollador ?? "").length,
+  clienteEmpresa: (d.clienteEmpresa ?? "").length,
+  nombreCliente: (d.nombreCliente ?? "").length,
+  proyecto: (d.proyecto ?? "").length,
+  modulos: (d.modulos ?? "").length,
+  tecnologias: (d.tecnologias ?? "").length,
+  montoTotal: (d.montoTotal ?? "").length,
+  inicial: (d.inicial ?? "").length,
+  cuotas: (d.cuotas ?? "").length,
+  penalidadAtrasoPago: (d.penalidadAtrasoPago ?? "").length,
+  quienPoseeCodigo: (d.quienPoseeCodigo ?? "").length,
+  jurisdiccion: (d.jurisdiccion ?? "").length,
+});
+
+type CharLens = ReturnType<typeof computeLens>;
 
 function SubmitButton({ isPending }: { isPending: boolean }) {
   return <PrimaryButton disabled={isPending}>{isPending ? "Generando PDF…" : "Generar y descargar PDF"}</PrimaryButton>;
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+function mapFieldErrorsToList(fe: Record<string, string> | undefined) {
+  if (!fe) {
+    return undefined;
+  }
+  return Object.entries(fe).map(([fieldKey, message]) => ({
+    fieldKey,
+    fieldLabel: ZOD_FIELD_LABELS[fieldKey] ?? fieldKey,
+    message,
+  }));
+}
 
 export function ContractGeneratorForm() {
   const [state, formAction] = useActionState<ContractGenerateState, FormData>(generateContractAction, null);
   const [isPending, startTransition] = useTransition();
+  const [ready, setReady] = useState(false);
+  const [defaults, setDefaults] = useState<Record<string, string> | null>(null);
+  const [numFirmas, setNumFirmas] = useState<1 | 2 | 3>(3);
+  const [lens, setLens] = useState<CharLens | null>(null);
   const [kind, setKind] = useState<ContractTemplateId>("DESARROLLO_SOFTWARE");
+  const [activeStep, setActiveStep] = useState(0);
+  const [formRemountKey, setFormRemountKey] = useState(0);
+  const [clientDateError, setClientDateError] = useState<string | null>(null);
   const doneRef = useRef<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const sig1 = useRef<SignaturePadHandle>(null);
   const sig2 = useRef<SignaturePadHandle>(null);
   const sig3 = useRef<SignaturePadHandle>(null);
 
-  function onSubmitForm(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const fd = new FormData(form);
-    fd.set("firmaColaborador1Png", sig1.current?.getPngBase64() ?? "");
-    fd.set("firmaColaborador2Png", sig2.current?.getPngBase64() ?? "");
-    fd.set("firmaColaborador3Png", sig3.current?.getPngBase64() ?? "");
-    startTransition(() => {
-      void formAction(fd);
-    });
-  }
+  const availableTypes = CONTRACT_CATALOG.filter((c) => c.available);
+  const singleTemplateMode = availableTypes.length <= 1;
+  const selected = CONTRACT_CATALOG.find((c) => c.id === kind);
+  const isAvailable = selected?.available === true;
+  const fieldErrors = state?.ok === false ? state.fieldErrors : undefined;
+  const fe = (k: string) => fieldErrors?.[k];
+  const stepWrap = (i: number) => (i === activeStep ? "space-y-4" : "hidden");
+
+  useEffect(() => {
+    const { values, numFirmas: n } = readDraft();
+    setDefaults(values);
+    setNumFirmas(n);
+    setLens(computeLens(values));
+    setReady(true);
+  }, []);
 
   useEffect(() => {
     if (state?.ok && state.download) {
@@ -50,33 +172,173 @@ export function ContractGeneratorForm() {
     }
   }, [state]);
 
-  const selected = CONTRACT_CATALOG.find((c) => c.id === kind);
-  const isAvailable = selected?.available === true;
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    const el = formRef.current;
+    if (!el) {
+      return;
+    }
+    let t: number;
+    const onSave = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => {
+        try {
+          const fd = new FormData(el);
+          const o: Record<string, string> = { numFirmas: String(numFirmas) };
+          fd.forEach((v, k) => {
+            if (typeof v !== "string") {
+              return;
+            }
+            if (k === "kind" || k.startsWith("firma")) {
+              return;
+            }
+            o[k] = v;
+          });
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(o));
+        } catch {
+          /* almacenamiento lleno o deshabilitado */
+        }
+      }, 600);
+    };
+    el.addEventListener("input", onSave);
+    el.addEventListener("change", onSave);
+    return () => {
+      el.removeEventListener("input", onSave);
+      el.removeEventListener("change", onSave);
+      window.clearTimeout(t);
+    };
+  }, [ready, numFirmas, formRemountKey]);
+
+  const handleUpdateLen = (name: keyof CharLens) => (v: string) => {
+    setLens((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return { ...prev, [name]: v.length };
+    });
+  };
+
+  const setFieldLen = (name: keyof CharLens) => (n: number) => {
+    setLens((prev) => (prev ? { ...prev, [name]: n } : prev));
+  };
+
+  const handleGoNext = () => {
+    if (clientDateError) {
+      return;
+    }
+    setActiveStep((s) => Math.min(s + 1, lastStep));
+  };
+
+  const handleGoBack = () => {
+    setActiveStep((s) => Math.max(s - 1, 0));
+  };
+
+  const handleClearDraft = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* */
+    }
+    const v = staticDefaults();
+    setDefaults(v);
+    setNumFirmas(3);
+    setLens(computeLens(v));
+    setFormRemountKey((k) => k + 1);
+  };
+
+  const onSubmitForm = (e: FormEvent<HTMLFormElement>) => {
+    const form = e.currentTarget;
+    const fIn = form.fechaInicio;
+    const fEn = form.fechaEntrega;
+    const a = fIn && "value" in fIn ? String(fIn.value).trim() : "";
+    const b = fEn && "value" in fEn ? String(fEn.value).trim() : "";
+    if (b && a && b < a) {
+      e.preventDefault();
+      setClientDateError("La fecha de entrega no puede ser anterior a la de inicio.");
+      return;
+    }
+    setClientDateError(null);
+    e.preventDefault();
+    const fd = new FormData(form);
+    fd.set("firmaColaborador1Png", sig1.current?.getPngBase64() ?? "");
+    fd.set("firmaColaborador2Png", sig2.current?.getPngBase64() ?? "");
+    fd.set("firmaColaborador3Png", sig3.current?.getPngBase64() ?? "");
+    startTransition(() => {
+      void formAction(fd);
+    });
+  };
+
+  if (!ready || !defaults || !lens) {
+    return (
+      <Card>
+        <p className="text-sm text-muted-foreground" role="status">
+          Cargando formulario y borrador local…
+        </p>
+      </Card>
+    );
+  }
+
+  const dV = (name: keyof typeof defaults) => String(defaults[name] ?? "");
 
   return (
-    <form onSubmit={onSubmitForm} className="space-y-6" encType="multipart/form-data" method="post">
+    <form
+      key={formRemountKey}
+      ref={formRef}
+      onSubmit={onSubmitForm}
+      className="space-y-6"
+      encType="multipart/form-data"
+      method="post"
+      noValidate
+    >
       <input type="hidden" name="kind" value={kind} />
 
-      <div className="rounded-xl border border-border bg-muted/30 p-4">
-        <Label htmlFor="contract-kind">Tipo de contrato</Label>
-        <select
-          id="contract-kind"
-          className={selectClass + " mt-1.5 max-w-lg"}
-          value={kind}
-          onChange={(e) => setKind(e.target.value as ContractTemplateId)}
-        >
-          {CONTRACT_CATALOG.map((c) => (
-            <option key={c.id} value={c.id} disabled={!c.available}>
-              {c.label}
-              {!c.available ? " (próximamente)" : ""}
-            </option>
-          ))}
-        </select>
-        {selected ? <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p> : null}
-      </div>
+      {!singleTemplateMode ? (
+        <div className="rounded-xl border border-border bg-muted/30 p-4">
+          <Label htmlFor="contract-kind">Tipo de contrato</Label>
+          <select
+            id="contract-kind"
+            className={selectClass + " mt-1.5 max-w-lg"}
+            value={kind}
+            onChange={(e) => setKind(e.target.value as ContractTemplateId)}
+          >
+            {CONTRACT_CATALOG.map((c) => (
+              <option key={c.id} value={c.id} disabled={!c.available}>
+                {c.label}
+                {!c.available ? " (próximamente)" : ""}
+              </option>
+            ))}
+          </select>
+          {selected ? <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p> : null}
+        </div>
+      ) : null}
 
-      {state?.ok === false ? <FormAlert type="err" message={state.error} /> : null}
-      {state?.ok && state.download ? <FormAlert type="ok" message="Descarga iniciada. Guarde el archivo y revíselo con asesoría legal." /> : null}
+      {state?.ok === false ? (
+        <FormAlert
+          type="err"
+          message={state.error}
+          fieldErrors={mapFieldErrorsToList(fieldErrors)}
+        />
+      ) : null}
+      {state?.ok && state.download ? (
+        <FormAlert type="ok" message="Descarga iniciada. Guarde el archivo y revíselo con asesoría legal." />
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+        <p className="text-muted-foreground" aria-hidden="true">
+          Paso {activeStep + 1} de {STEPS.length}: <strong className="text-foreground">{STEPS[activeStep]!.title}</strong>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <GhostButton
+            type="button"
+            onClick={handleClearDraft}
+            aria-label="Borrar borrador guardado en este navegador"
+          >
+            Borrar borrador
+          </GhostButton>
+        </div>
+      </div>
 
       {!isAvailable ? (
         <Card>
@@ -84,120 +346,347 @@ export function ContractGeneratorForm() {
         </Card>
       ) : (
         <>
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">Partes</h3>
+          <ol className="flex list-none flex-wrap gap-1 text-xs" aria-label="Progreso del asistente">
+            {STEPS.map((s, i) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => setActiveStep(i)}
+                  className={
+                    "rounded-md px-2 py-1 " +
+                    (i === activeStep
+                      ? "bg-primary text-primary-foreground"
+                      : i < activeStep
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground")
+                  }
+                  aria-current={i === activeStep ? "step" : undefined}
+                >
+                  {i + 1}
+                </button>
+              </li>
+            ))}
+          </ol>
+
+          <section className={stepWrap(0)} aria-labelledby="step-partes">
+            <h3 id="step-partes" className="text-sm font-semibold text-foreground">
+              {STEPS[0]!.title}
+            </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="empresaDesarrolladora">Empresa desarrolladora (EL DESARROLLADOR) *</Label>
+                <Label htmlFor="empresaDesarrolladora">Empresa o razón social del proveedor (EL PRESTADOR) *</Label>
+                {fe("empresaDesarrolladora") ? (
+                  <p id="empresaDesarrolladora-err" className="text-destructive text-xs" role="alert">
+                    {fe("empresaDesarrolladora")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="empresaDesarrolladora"
                   name="empresaDesarrolladora"
                   required
                   maxLength={300}
-                  placeholder="Razón social o nombre comercial"
+                  defaultValue={dV("empresaDesarrolladora")}
+                  placeholder="Ej. ONEMAX, S. R. L. — RNC …"
+                  aria-describedby={
+                    [fe("empresaDesarrolladora") && "empresaDesarrolladora-err", "empresaDesarrolladora-count"]
+                      .filter(Boolean)
+                      .join(" ") || "empresaDesarrolladora-count"
+                  }
+                  aria-invalid={fe("empresaDesarrolladora") ? true : undefined}
+                  onInput={(e) => handleUpdateLen("empresaDesarrolladora")((e.target as HTMLInputElement).value)}
                 />
+                <p className="text-right text-xs text-muted-foreground" id="empresaDesarrolladora-count" aria-live="polite">
+                  {lens.empresaDesarrolladora} / 300
+                </p>
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="representanteDesarrollador">Representante del desarrollador *</Label>
+                <Label htmlFor="representanteDesarrollador">Representante de EL PRESTADOR *</Label>
+                {fe("representanteDesarrollador") ? (
+                  <p id="representanteDesarrollador-err" className="text-destructive text-xs" role="alert">
+                    {fe("representanteDesarrollador")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="representanteDesarrollador"
                   name="representanteDesarrollador"
                   required
                   maxLength={200}
-                  placeholder="Nombre y cargo"
+                  defaultValue={dV("representanteDesarrollador")}
+                  placeholder="Nombre completo, cargo: Representante legal / Director de proyectos"
+                  aria-describedby={
+                    [fe("representanteDesarrollador") && "representanteDesarrollador-err", "representanteDesarrollador-count"]
+                      .filter(Boolean)
+                      .join(" ") || "representanteDesarrollador-count"
+                  }
+                  aria-invalid={fe("representanteDesarrollador") ? true : undefined}
+                  onInput={(e) => handleUpdateLen("representanteDesarrollador")((e.target as HTMLInputElement).value)}
                 />
+                <p
+                  className="text-right text-xs text-muted-foreground"
+                  id="representanteDesarrollador-count"
+                  aria-live="polite"
+                >
+                  {lens.representanteDesarrollador} / 200
+                </p>
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
                 <Label htmlFor="clienteEmpresa">Empresa del cliente (EL CLIENTE) *</Label>
+                {fe("clienteEmpresa") ? (
+                  <p id="clienteEmpresa-err" className="text-destructive text-xs" role="alert">
+                    {fe("clienteEmpresa")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="clienteEmpresa"
                   name="clienteEmpresa"
                   required
                   maxLength={300}
+                  defaultValue={dV("clienteEmpresa")}
+                  placeholder="Razón social, nombre comercial o 'persona natural' con nombre completo"
+                  aria-describedby={
+                    [fe("clienteEmpresa") && "clienteEmpresa-err", "clienteEmpresa-count"].filter(Boolean).join(" ") ||
+                    "clienteEmpresa-count"
+                  }
+                  aria-invalid={fe("clienteEmpresa") ? true : undefined}
+                  onInput={(e) => handleUpdateLen("clienteEmpresa")((e.target as HTMLInputElement).value)}
                 />
+                <p className="text-right text-xs text-muted-foreground" id="clienteEmpresa-count" aria-live="polite">
+                  {lens.clienteEmpresa} / 300
+                </p>
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
                 <Label htmlFor="nombreCliente">Nombre del representante del cliente *</Label>
+                {fe("nombreCliente") ? (
+                  <p id="nombreCliente-err" className="text-destructive text-xs" role="alert">
+                    {fe("nombreCliente")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="nombreCliente"
                   name="nombreCliente"
                   required
                   maxLength={200}
+                  defaultValue={dV("nombreCliente")}
+                  placeholder="Nombre, apellido y, si aplica, cargo o «propietario» / «apoderado»"
+                  aria-describedby={
+                    [fe("nombreCliente") && "nombreCliente-err", "nombreCliente-count"].filter(Boolean).join(" ") ||
+                    "nombreCliente-count"
+                  }
+                  aria-invalid={fe("nombreCliente") ? true : undefined}
+                  onInput={(e) => handleUpdateLen("nombreCliente")((e.target as HTMLInputElement).value)}
                 />
+                <p className="text-right text-xs text-muted-foreground" id="nombreCliente-count" aria-live="polite">
+                  {lens.nombreCliente} / 200
+                </p>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">Proyecto y alcance</h3>
+          <section className={stepWrap(1)} aria-labelledby="step-proyecto">
+            <h3 id="step-proyecto" className="text-sm font-semibold text-foreground">
+              {STEPS[1]!.title}
+            </h3>
+            <p className="text-sm text-muted-foreground" id="paste-help-global">
+              {PASTE_HELP}
+            </p>
             <div className={labelBoxClass}>
               <Label htmlFor="proyecto">Nombre del sistema / proyecto *</Label>
-              <input className={inputClass} id="proyecto" name="proyecto" required maxLength={500} />
-            </div>
-            <div className={labelBoxClass}>
-              <Label htmlFor="modulos">Módulos y funciones / alcance *</Label>
-              <textarea
-                className={inputClass + " min-h-[120px]"}
-                id="modulos"
-                name="modulos"
+              {fe("proyecto") ? (
+                <p id="proyecto-err" className="text-destructive text-xs" role="alert">
+                  {fe("proyecto")}
+                </p>
+              ) : null}
+              <input
+                className={inputClass}
+                id="proyecto"
+                name="proyecto"
                 required
-                maxLength={20000}
-                placeholder="Describa pantallas, integraciones, roles, entregables…"
+                maxLength={500}
+                defaultValue={dV("proyecto")}
+                placeholder="Ej. POS y stock multi-sucursal, panel admin y caja (detalle mínimo para identificar el acto)"
+                aria-describedby={["paste-help-global", "proyecto-count", fe("proyecto") && "proyecto-err"]
+                  .filter(Boolean)
+                  .join(" ")}
+                onInput={(e) => handleUpdateLen("proyecto")((e.target as HTMLInputElement).value)}
+                aria-invalid={fe("proyecto") ? true : undefined}
               />
+              <p className="text-right text-xs text-muted-foreground" id="proyecto-count" aria-live="polite">
+                {lens.proyecto} / 500
+              </p>
             </div>
             <div className={labelBoxClass}>
-              <Label htmlFor="tecnologias">Tecnologías (stack, frameworks, requisitos técnicos)</Label>
-              <textarea
-                className={inputClass + " min-h-[72px]"}
-                id="tecnologias"
-                name="tecnologias"
-                maxLength={5000}
-                placeholder="Ej. Next.js, NestJS, PostgreSQL, alojamiento en…"
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="modulos">Módulos y funciones / alcance *</Label>
+              </div>
+              {fe("modulos") ? (
+                <p id="modulos-err" className="text-destructive text-xs" role="alert">
+                  {fe("modulos")}
+                </p>
+              ) : null}
+              <ContractRichTextField
+                key={`rtf-modulos-${formRemountKey}`}
+                remountKey={formRemountKey}
+                name="modulos"
+                id="modulos"
+                defaultValue={dV("modulos")}
+                maxLength={20000}
+                requiredField
+                placeholder="Ej. inventario, ventas, reportes, roles (admin, cajero)… (use listas del editor, no Word pegado sin limpiar.)"
+                minHeightClass="min-h-[120px]"
+                aria-describedby={["paste-help-global", "modulos-count", fe("modulos") && "modulos-err"].filter(Boolean).join(" ")}
+                aria-invalid={fe("modulos") ? true : undefined}
+                onPlainLengthChange={setFieldLen("modulos")}
               />
+              <p className="text-right text-xs text-muted-foreground" id="modulos-count" aria-live="polite">
+                {lens.modulos} / 20000
+              </p>
             </div>
-          </div>
+            <div className={labelBoxClass}>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="tecnologias">Tecnologías (stack, frameworks, requisitos técnicos)</Label>
+              </div>
+              <ContractRichTextField
+                key={`rtf-tecnologias-${formRemountKey}`}
+                remountKey={formRemountKey}
+                name="tecnologias"
+                id="tecnologias"
+                defaultValue={dV("tecnologias")}
+                maxLength={5000}
+                placeholder="Next.js, NestJS, PostgreSQL, hosting, dominio, SSL, respaldos…"
+                minHeightClass="min-h-[80px]"
+                aria-describedby="paste-help-global tecnologias-count"
+                onPlainLengthChange={setFieldLen("tecnologias")}
+              />
+              <p className="text-right text-xs text-muted-foreground" id="tecnologias-count" aria-live="polite">
+                {lens.tecnologias} / 5000
+              </p>
+            </div>
+          </section>
 
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">Precio y pago</h3>
+          <section className={stepWrap(2)} aria-labelledby="step-precio">
+            <h3 id="step-precio" className="text-sm font-semibold text-foreground">
+              {STEPS[2]!.title}
+            </h3>
+            <p className="text-sm text-muted-foreground" id="moneda-desc">
+              Elija con qué moneda deben leerse los importes de este acto. Si escribe cifras mezcladas, use «En el texto
+              (libre)» y detalle en cada campo.
+            </p>
+            <div className={labelBoxClass}>
+              <Label htmlFor="monedaReferencia">Moneda de referencia *</Label>
+              {fe("monedaReferencia") ? (
+                <p id="monedaReferencia-err" className="text-destructive text-xs" role="alert">
+                  {fe("monedaReferencia")}
+                </p>
+              ) : null}
+              <select
+                id="monedaReferencia"
+                name="monedaReferencia"
+                className={selectClass + " max-w-sm"}
+                required
+                defaultValue={dV("monedaReferencia") || "DOP"}
+                aria-describedby={["moneda-desc", fe("monedaReferencia") && "monedaReferencia-err"].filter(Boolean).join(" ")}
+              >
+                <option value="DOP">Peso dominicano (RD$ / DOP)</option>
+                <option value="USD">Dólar estadounidense (USD)</option>
+                <option value="LIBRE">En el texto (libre — cifra explícita en montos)</option>
+              </select>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className={labelBoxClass + " sm:col-span-2"}>
                 <Label htmlFor="montoTotal">Monto total *</Label>
+                {fe("montoTotal") ? (
+                  <p id="montoTotal-err" className="text-destructive text-xs" role="alert">
+                    {fe("montoTotal")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="montoTotal"
                   name="montoTotal"
                   required
                   maxLength={200}
-                  placeholder="Ej. RD$ 150,000.00 o USD 5,000.00"
+                  defaultValue={dV("montoTotal")}
+                  placeholder="Ej. RD$ 150,000.00; USD 5,000.00; o cifra acorde a su elección de moneda"
+                  aria-describedby={fe("montoTotal") ? "montoTotal-err" : undefined}
+                  onInput={(e) => handleUpdateLen("montoTotal")((e.target as HTMLInputElement).value)}
                 />
+                <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                  {lens.montoTotal} / 200
+                </p>
               </div>
               <div className={labelBoxClass}>
                 <Label htmlFor="inicial">Pago inicial *</Label>
-                <input className={inputClass} id="inicial" name="inicial" required maxLength={200} />
-              </div>
-              <div className={labelBoxClass}>
-                <Label htmlFor="cuotas">Restante / cuotas *</Label>
+                {fe("inicial") ? (
+                  <p id="inicial-err" className="text-destructive text-xs" role="alert">
+                    {fe("inicial")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
-                  id="cuotas"
-                  name="cuotas"
+                  id="inicial"
+                  name="inicial"
                   required
-                  maxLength={2000}
-                  placeholder="Ej. 2 cuotas de RD$ 50,000 a los 30 y 60 días"
+                  maxLength={200}
+                  defaultValue={dV("inicial")}
+                  placeholder="Ej. 50% al aprobar, o RD$ 30,000.00 a la firma"
+                  aria-describedby={fe("inicial") ? "inicial-err" : undefined}
+                  onInput={(e) => handleUpdateLen("inicial")((e.target as HTMLInputElement).value)}
                 />
+                <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                  {lens.inicial} / 200
+                </p>
+              </div>
+              <div className={labelBoxClass + " sm:col-span-2"}>
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor="cuotas">Restante / cuotas *</Label>
+                </div>
+                {fe("cuotas") ? (
+                  <p id="cuotas-err" className="text-destructive text-xs" role="alert">
+                    {fe("cuotas")}
+                  </p>
+                ) : null}
+                <ContractRichTextField
+                  key={`rtf-cuotas-${formRemountKey}`}
+                  remountKey={formRemountKey}
+                  name="cuotas"
+                  id="cuotas"
+                  defaultValue={dV("cuotas")}
+                  maxLength={2000}
+                  requiredField
+                  placeholder="Ej. 2 cuotas de RD$ 50,000.00 a los 30 y 60 días…"
+                  minHeightClass="min-h-[88px]"
+                  aria-describedby={["cuotas-len", fe("cuotas") && "cuotas-err"].filter(Boolean).join(" ")}
+                  aria-invalid={fe("cuotas") ? true : undefined}
+                  onPlainLengthChange={setFieldLen("cuotas")}
+                />
+                <p className="text-right text-xs text-muted-foreground" id="cuotas-len" aria-live="polite">
+                  {lens.cuotas} / 2000
+                </p>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">Plazos</h3>
+          <section className={stepWrap(3)} aria-labelledby="step-plazos">
+            <h3 id="step-plazos" className="text-sm font-semibold text-foreground">
+              {STEPS[3]!.title}
+            </h3>
+            {clientDateError ? (
+              <p className="text-destructive text-sm" role="alert">
+                {clientDateError}
+              </p>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className={labelBoxClass}>
                 <Label htmlFor="diasHabiles">Días hábiles de desarrollo (estimado) *</Label>
+                {fe("diasHabiles") ? (
+                  <p className="text-destructive text-xs" id="dias-err" role="alert">
+                    {fe("diasHabiles")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="diasHabiles"
@@ -206,25 +695,61 @@ export function ContractGeneratorForm() {
                   min={1}
                   max={3650}
                   required
-                  defaultValue={90}
+                  defaultValue={dV("diasHabiles") || "90"}
+                  aria-describedby={fe("diasHabiles") ? "dias-err" : undefined}
+                  aria-invalid={fe("diasHabiles") ? true : undefined}
                 />
               </div>
               <div className={labelBoxClass}>
                 <Label htmlFor="fechaInicio">Fecha de inicio (referencia) *</Label>
-                <input className={inputClass} id="fechaInicio" name="fechaInicio" type="date" required defaultValue={todayStr()} />
+                {fe("fechaInicio") ? (
+                  <p className="text-destructive text-xs" id="fini-err" role="alert">
+                    {fe("fechaInicio")}
+                  </p>
+                ) : null}
+                <input
+                  className={inputClass}
+                  id="fechaInicio"
+                  name="fechaInicio"
+                  type="date"
+                  required
+                  defaultValue={dV("fechaInicio") || todayStr()}
+                  onChange={() => setClientDateError(null)}
+                  aria-describedby={fe("fechaInicio") ? "fini-err" : undefined}
+                />
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
                 <Label htmlFor="fechaEntrega">Fecha de entrega estimada (opcional; si queda en blanco se indica en texto genérico)</Label>
-                <input className={inputClass} id="fechaEntrega" name="fechaEntrega" type="date" />
+                {fe("fechaEntrega") ? (
+                  <p className="text-destructive text-xs" id="fent-err" role="alert">
+                    {fe("fechaEntrega")}
+                  </p>
+                ) : null}
+                <input
+                  className={inputClass}
+                  id="fechaEntrega"
+                  name="fechaEntrega"
+                  type="date"
+                  defaultValue={dV("fechaEntrega")}
+                  onChange={() => setClientDateError(null)}
+                  aria-describedby={fe("fechaEntrega") ? "fent-err" : undefined}
+                />
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">Soporte, IP y riesgos</h3>
+          <section className={stepWrap(4)} aria-labelledby="step-riesgo">
+            <h3 id="step-riesgo" className="text-sm font-semibold text-foreground">
+              {STEPS[4]!.title}
+            </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className={labelBoxClass}>
                 <Label htmlFor="mesesSoporte">Meses de soporte post-entrega *</Label>
+                {fe("mesesSoporte") ? (
+                  <p className="text-destructive text-xs" id="ms-err" role="alert">
+                    {fe("mesesSoporte")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="mesesSoporte"
@@ -233,79 +758,217 @@ export function ContractGeneratorForm() {
                   min={0}
                   max={120}
                   required
-                  defaultValue={3}
+                  defaultValue={dV("mesesSoporte") || "3"}
+                  aria-describedby={fe("mesesSoporte") ? "ms-err" : undefined}
                 />
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="quienPoseeCodigo">Titularidad del código y entregables (tras pago) *</Label>
-                <input
-                  className={inputClass}
-                  id="quienPoseeCodigo"
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor="quienPoseeCodigo">Titularidad del código y entregables (tras pago) *</Label>
+                </div>
+                {fe("quienPoseeCodigo") ? (
+                  <p id="quien-err" className="text-destructive text-xs" role="alert">
+                    {fe("quienPoseeCodigo")}
+                  </p>
+                ) : null}
+                <ContractRichTextField
+                  key={`rtf-quien-${formRemountKey}`}
+                  remountKey={formRemountKey}
                   name="quienPoseeCodigo"
-                  required
+                  id="quienPoseeCodigo"
+                  defaultValue={dV("quienPoseeCodigo")}
                   maxLength={500}
-                  defaultValue="EL CLIENTE, una vez completado el pago total acordado"
+                  requiredField
+                  placeholder="Ej. EL CLIENTE, una vez abonado el ciento por ciento…"
+                  minHeightClass="min-h-[72px]"
+                  aria-describedby={["quien-c", fe("quienPoseeCodigo") && "quien-err"].filter(Boolean).join(" ")}
+                  aria-invalid={fe("quienPoseeCodigo") ? true : undefined}
+                  onPlainLengthChange={setFieldLen("quienPoseeCodigo")}
                 />
+                <p className="text-right text-xs text-muted-foreground" id="quien-c" aria-live="polite">
+                  {lens.quienPoseeCodigo} / 500
+                </p>
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="penalidadAtrasoPago">Penalidad o consecuencias por atraso en pago (opcional)</Label>
-                <textarea
-                  className={inputClass + " min-h-[64px]"}
-                  id="penalidadAtrasoPago"
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor="penalidadAtrasoPago">Penalidad o consecuencias por atraso en pago (opcional)</Label>
+                </div>
+                <ContractRichTextField
+                  key={`rtf-penalidad-${formRemountKey}`}
+                  remountKey={formRemountKey}
                   name="penalidadAtrasoPago"
+                  id="penalidadAtrasoPago"
+                  defaultValue={dV("penalidadAtrasoPago")}
                   maxLength={2000}
-                  placeholder="Ej. interés moratorio, suspensión de hitos, costos de reactivación…"
+                  placeholder="Ej. interés moratorio, suspensión de acceso, costos de reactivación…"
+                  minHeightClass="min-h-[72px]"
+                  onPlainLengthChange={setFieldLen("penalidadAtrasoPago")}
                 />
+                <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                  {lens.penalidadAtrasoPago} / 2000
+                </p>
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
                 <Label htmlFor="jurisdiccion">Jurisdicción / leyes aplicables *</Label>
+                {fe("jurisdiccion") ? (
+                  <p id="juris-err" className="text-destructive text-xs" role="alert">
+                    {fe("jurisdiccion")}
+                  </p>
+                ) : null}
                 <input
                   className={inputClass}
                   id="jurisdiccion"
                   name="jurisdiccion"
                   required
                   maxLength={500}
-                  defaultValue="República Dominicana"
+                  defaultValue={dV("jurisdiccion")}
+                  aria-describedby={["jur-len", fe("jurisdiccion") && "juris-err"].filter(Boolean).join(" ")}
+                  onInput={(e) => handleUpdateLen("jurisdiccion")((e.target as HTMLInputElement).value)}
                 />
+                <p className="text-right text-xs text-muted-foreground" id="jur-len" aria-live="polite">
+                  {lens.jurisdiccion} / 500
+                </p>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className={labelBoxClass}>
-            <Label htmlFor="fechaHoy">Fecha de firma del documento (referencia en el cierre) *</Label>
-            <input
-              className={inputClass + " max-w-xs"}
-              id="fechaHoy"
-              name="fechaHoy"
-              type="date"
-              required
-              defaultValue={todayStr()}
-            />
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">Firmas de colaboradores (vendedores)</h3>
-            <p className="text-sm text-muted-foreground">
-              Firme con el dedo, stylus o mouse en los tres recuadros (uno por cada colaborador que comercializa el
-              sistema). Se insertarán en el PDF bajo <strong>EL DESARROLLADOR</strong>. Use <strong>Limpiar</strong> si
-              se equivocó. Si deja en blanco, en el PDF verá un espacio para firmar a mano al imprimir.
-            </p>
-            <div className="grid gap-6 sm:grid-cols-3">
-              <SignaturePad ref={sig1} label="Colaborador 1" />
-              <SignaturePad ref={sig2} label="Colaborador 2" />
-              <SignaturePad ref={sig3} label="Colaborador 3" />
+          <section className={stepWrap(5)} aria-labelledby="step-cierre">
+            <h3 id="step-cierre" className="text-sm font-semibold text-foreground">
+              {STEPS[5]!.title}
+            </h3>
+            <div className={labelBoxClass}>
+              <Label htmlFor="fechaHoy">Fecha de firma del documento (referencia en el cierre) *</Label>
+              {fe("fechaHoy") ? (
+                <p id="fechaHoy-err" className="text-destructive text-xs" role="alert">
+                  {fe("fechaHoy")}
+                </p>
+              ) : null}
+              <input
+                className={inputClass + " max-w-xs"}
+                id="fechaHoy"
+                name="fechaHoy"
+                type="date"
+                required
+                defaultValue={dV("fechaHoy") || todayStr()}
+                aria-describedby={fe("fechaHoy") ? "fechaHoy-err" : undefined}
+                aria-invalid={fe("fechaHoy") ? true : undefined}
+              />
             </div>
-          </div>
+          </section>
 
-          <div>
-            <SubmitButton isPending={isPending} />
-          </div>
-          <Muted>
-            Se genera un <strong>PDF</strong> listo para imprimir o compartir. Complemente con cédula/RNC y anexos
-            legales según su caso; revise con un asesor antes de firmar.
-          </Muted>
+          <section className={stepWrap(6)} aria-labelledby="step-firmas">
+            <h3 id="step-firmas" className="text-sm font-semibold text-foreground">
+              {STEPS[6]!.title}
+            </h3>
+            <p className="text-sm text-muted-foreground" id="firmas-intro">
+              En el PDF se añade una hoja con tres celdas alineadas (como en el esquema). Complete solo las que necesite; las
+              vacías quedan con espacio para firmar a mano al imprimir. Los trazos de este formulario se insertan bajo EL
+              PRESTADOR.
+            </p>
+            <div className={labelBoxClass}>
+              <Label htmlFor="numFirmasUi">Firmas de colaborador a capturar</Label>
+              <select
+                id="numFirmasUi"
+                className={selectClass + " max-w-sm"}
+                value={numFirmas}
+                onChange={(e) => setNumFirmas(parseInt(e.target.value, 10) as 1 | 2 | 3)}
+                aria-describedby="firmas-intro"
+              >
+                <option value={1}>1 firma (comercial)</option>
+                <option value={2}>2 firmas (comerciales)</option>
+                <option value={3}>3 firmas (comerciales)</option>
+              </select>
+            </div>
+            <p className="text-xs text-muted-foreground" aria-hidden="true">
+              Vista aproximada: celdas subrayadas en el PDF, izquierda a derecha, Colaborador 1 a 3. Las celdas que deje
+              en blanco siguen reservando espacio.
+            </p>
+            <div
+              className="mb-4 flex flex-wrap gap-2"
+              role="img"
+              aria-label="Celdas de firma: las primeras N según su elección son las activas; el resto, espacio al imprimir"
+            >
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className={
+                    "flex h-20 w-28 flex-col items-center justify-end rounded border-2 " +
+                    (i < numFirmas
+                      ? "border-primary/70 bg-primary/5"
+                      : "border-dashed border-border bg-muted/20 opacity-80")
+                  }
+                >
+                  <span className="p-1 text-center text-[0.65rem] text-muted-foreground">
+                    Col. {i + 1}
+                    {i < numFirmas ? " (dibuje abajo)" : " (en blanco en el form.)"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-muted-foreground" id="sign-help">
+              Firme con el dedo, lápiz óptico o mouse. Use <strong>Limpiar</strong> si se equivocó. Si deja en blanco, se
+              reservará en el impreso.
+            </p>
+            <div
+              className="grid gap-6 sm:grid-cols-3"
+              id="sign-grid"
+              aria-describedby="sign-help"
+              aria-label="Tres recuadros consecutivos: use los primeros según cuántas firmas indicó arriba; el resto puede dejarse en blanco"
+            >
+              <div>
+                <SignaturePad ref={sig1} label="Colaborador 1" />
+              </div>
+              <div className={numFirmas < 2 ? "opacity-50" : ""}>
+                <SignaturePad ref={sig2} label="Colaborador 2" />
+              </div>
+              <div className={numFirmas < 3 ? "opacity-50" : ""}>
+                <SignaturePad ref={sig3} label="Colaborador 3" />
+              </div>
+            </div>
+            {numFirmas < 3 ? (
+              <p className="text-sm text-muted-foreground">
+                Los recuadros atenuados no suelen ser necesarios; el PDF siempre reserva tres celdas. Deje en blanco lo que
+                no use.
+              </p>
+            ) : null}
+          </section>
         </>
       )}
+
+      {isAvailable ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex gap-2">
+            {activeStep > 0 ? (
+              <button
+                type="button"
+                onClick={handleGoBack}
+                className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground shadow-sm transition hover:bg-muted"
+                aria-label="Paso anterior"
+              >
+                Anterior
+              </button>
+            ) : null}
+            {activeStep < lastStep ? (
+              <button
+                type="button"
+                onClick={handleGoNext}
+                className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground shadow-sm transition hover:bg-muted"
+                aria-label="Paso siguiente"
+              >
+                Siguiente
+              </button>
+            ) : null}
+          </div>
+          {activeStep === lastStep ? <SubmitButton isPending={isPending} /> : null}
+        </div>
+      ) : null}
+      {isAvailable ? (
+        <Muted>
+          Se genera un <strong>PDF</strong> listo para imprimir o compartir. Complemente con cédula/RNC y anexos legales
+          según su caso; revise con un asesor antes de firmar. El borrador de este formulario se guarda de forma local en
+          su navegador mientras rellene (no se envía al servidor hasta generar el PDF).
+        </Muted>
+      ) : null}
     </form>
   );
 }

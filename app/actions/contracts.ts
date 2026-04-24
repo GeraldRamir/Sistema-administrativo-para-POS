@@ -1,6 +1,7 @@
 "use server";
 
 import { desarrolloSoftwareContractSchema } from "@/lib/validators";
+import type { ZodError } from "zod";
 import { buildDesarrolloSoftwarePdf } from "@/lib/contract-pdf/desarrollo-software-pdf";
 import { desarrolloSoftwareFileName } from "@/lib/contract-templates/desarrollo-software";
 
@@ -9,11 +10,24 @@ const MAX_SIGNATURE_PNG = 1_000_000;
 
 export type ContractGenerateState =
   | null
-  | { ok: false; error: string }
+  | { ok: false; error: string; fieldErrors?: Record<string, string> }
   | { ok: true; download: { name: string; pdfBase64: string } };
 
-function err(m: string): ContractGenerateState {
-  return { ok: false, error: m };
+function err(m: string, fieldErrors?: Record<string, string>): ContractGenerateState {
+  return { ok: false, error: m, ...(fieldErrors ? { fieldErrors } : {}) };
+}
+
+function zodErrorToFieldMap(issue: ZodError): Record<string, string> {
+  const o: Record<string, string> = {};
+  for (const i of issue.issues) {
+    const p = i.path[0];
+    const k = p !== undefined && p !== null ? String(p) : "";
+    if (!k || o[k]) {
+      continue;
+    }
+    o[k] = i.message;
+  }
+  return o;
 }
 
 /** Acepta base64 (del canvas `toDataURL`) o cadena vacía. Valida cabecera PNG. */
@@ -63,6 +77,7 @@ export async function generateContractAction(
     nombreCliente: String(formData.get("nombreCliente") ?? ""),
     proyecto: String(formData.get("proyecto") ?? ""),
     modulos: String(formData.get("modulos") ?? ""),
+    monedaReferencia: String(formData.get("monedaReferencia") ?? "DOP"),
     montoTotal: String(formData.get("montoTotal") ?? ""),
     inicial: String(formData.get("inicial") ?? ""),
     cuotas: String(formData.get("cuotas") ?? ""),
@@ -79,9 +94,8 @@ export async function generateContractAction(
 
   const parsed = desarrolloSoftwareContractSchema.safeParse(raw);
   if (!parsed.success) {
-    const first = parsed.error.flatten().fieldErrors;
-    const msg = Object.values(first).flat()[0] ?? "Revise los campos obligatorios y los valores numéricos.";
-    return err(msg);
+    const fe = zodErrorToFieldMap(parsed.error);
+    return err("Revise los campos señalados e inténtelo de nuevo.", fe);
   }
 
   let sig1: Buffer | null = null;

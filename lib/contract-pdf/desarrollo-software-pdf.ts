@@ -1,146 +1,287 @@
+import { Writable } from "node:stream";
 import PDFDocument from "pdfkit";
 import type { DesarrolloSoftwareInput } from "@/lib/contract-templates/desarrollo-software";
 import {
   type DesarrolloSoftwarePdfModel,
   CONTRATO_PDF_NOTA_PIE,
   getDesarrolloSoftwareContractPdfModel,
+  sanitizeDesarrolloSoftwareInputForPdf,
 } from "@/lib/contract-templates/desarrollo-software";
 
-const M = 56;
-const LINE = "#1a1a1a";
-const BORDER = "#b8b8b8";
-const BG_MUTED = "#f3f1ec";
-const TEXT = "#1a1a1a";
-const MUTED = "#3d3d3d";
+/** Márgenes amplios (aspecto más editorial / actual). */
+const M = 60;
+/** Azul petróleo: formal y legible (no neón). */
+const ACCENT = "#1e3a5f";
+const TEXT = "#0f172a";
+const MUTED = "#4b5563";
+const BORDER = "#e2e8f0";
+const PAGE_LINE = "#cbd5e1";
 const W_PT = 595.28;
 const H_PT = 841.89;
 const COL_W = W_PT - 2 * M;
+/** Límite inferior (y) del área útil: margen inferior, sin solapar pie de PDF. */
+const CONTENT_MAX_Y = H_PT - M;
+/** Mínimo cuerpo de texto que debe caber bajo el título del artículo (evita título aislado al final de página). */
+const MIN_BODY_PTS_WITH_TITLE = 36;
+/** Espacio encima de cada título de artículo (debe coincidir con `sectionBlock`). */
+const GAP_PRE_SECTION = 4;
+/** Título de artículo: espacio bajo el texto, grosor “virtual” de la raya y aire hasta el cuerpo (alinear con `sectionBlock`). */
+const SECTION_TITLE_GAP_BELOW_TEXT = 4;
+const SECTION_TITLE_LINE_PTS = 1;
+const SECTION_TITLE_GAP_TO_BODY = 6;
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
-const COL_ROLE = M + 20;
-const W_ROLE = 155;
-const COL_NAME = COL_ROLE + W_ROLE + 12;
-const W_NAME = W_PT - M - COL_NAME - 4;
+const MEASURE_DOC_OPTIONS = {
+  size: "A4" as const,
+  margin: M,
+};
+
+/**
+ * `heightOfString` reutiliza el ajuste de líneas: si el texto pasa de página, PDFKit
+ * añade páginas reales. El callback de `heightOfString` no imprime, así que el PDF
+ * principal acumulaba hojas en blanco. Las mediciones se hacen en un documento
+ * desechable (sin tocar el PDF final).
+ */
+const withMeasureDoc = <T>(fn: (m: PdfDoc) => T): T => {
+  const m = new PDFDocument(MEASURE_DOC_OPTIONS);
+  const sink = new Writable({ write(_chunk, _enc, cb) { cb(); } });
+  m.pipe(sink);
+  try {
+    return fn(m);
+  } finally {
+    m.end();
+  }
+};
+
+type PartyCard = {
+  title: string;
+  razon: string;
+  representadoPor: string;
+};
+
+function partyRowsToCards(model: DesarrolloSoftwarePdfModel): PartyCard[] {
+  const rows = model.partyRows;
+  const out: PartyCard[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const r = rows[i];
+    const label = (r.label ?? "").trim();
+    if (label) {
+      const rNext = rows[i + 1];
+      if (rNext) {
+        out.push({
+          title: label,
+          razon: (r.name ?? "").trim(),
+          representadoPor: (rNext.name ?? "").trim(),
+        });
+        i += 2;
+      } else {
+        out.push({ title: label, razon: (r.name ?? "").trim(), representadoPor: "" });
+        i += 1;
+      }
+    } else {
+      i += 1;
+    }
+  }
+  return out;
+}
+
+const titleBandBoxHeight = (m: PdfDoc, title: string) => {
+  m.font("Times-Bold", 8.8);
+  const hTitle = m.heightOfString(title, { width: COL_W, lineGap: 0.8 });
+  return (
+    hTitle +
+    SECTION_TITLE_GAP_BELOW_TEXT +
+    SECTION_TITLE_LINE_PTS +
+    SECTION_TITLE_GAP_TO_BODY
+  );
+};
+
+const titleBandHeightPt = (title: string) => withMeasureDoc((m) => titleBandBoxHeight(m, title));
+
+/**
+ * Altura total del artículo (banda de título + cuerpo), con los mismos parámetros que `sectionBlock`.
+ */
+const measureSectionBlockHeight = (title: string, paragraphs: string[]) =>
+  withMeasureDoc((m) => {
+    const boxH = titleBandBoxHeight(m, title);
+    let hBody = 0;
+    let first = true;
+    for (const p of paragraphs) {
+      if (p && p.trim()) {
+        if (!first) {
+          hBody += 2.5;
+        }
+        first = false;
+        m.font("Times-Roman", 9.6);
+        hBody += m.heightOfString(p.trim(), { width: COL_W, align: "justify", lineGap: 1.35 });
+      }
+    }
+    return GAP_PRE_SECTION + boxH + hBody + 2.8;
+  });
+
+function goToNextPageTop(doc: PdfDoc) {
+  doc.addPage();
+  doc.x = M;
+  doc.y = M;
+}
+
+/**
+ * Evita cortar título + cuerpo: si el bloque entero cabe en una hoja, se pasa a la
+ * siguiente; si un artículo excede una hoja, respeta al menos título + primeras líneas de cuerpo.
+ */
+function ensureSectionPageLayout(doc: PdfDoc, title: string, paragraphs: string[]) {
+  const fullH = measureSectionBlockHeight(title, paragraphs);
+  const y = doc.y;
+  const yMax = CONTENT_MAX_Y;
+  if (y + fullH <= yMax) {
+    return;
+  }
+  const onePageH = yMax - M;
+  if (fullH <= onePageH) {
+    goToNextPageTop(doc);
+    return;
+  }
+  const boxH = titleBandHeightPt(title);
+  const needHead = GAP_PRE_SECTION + boxH;
+  if (y + needHead > yMax) {
+    goToNextPageTop(doc);
+    return;
+  }
+  if (y + needHead + MIN_BODY_PTS_WITH_TITLE > yMax) {
+    goToNextPageTop(doc);
+  }
+}
+
+const ensureClosingBlockLayout = (doc: PdfDoc, closing: string[]) => {
+  const h = withMeasureDoc((m) => {
+    let hInner = 6;
+    const closeTitle = "Cierre y asentimiento de lectura";
+    m.font("Times-Bold", 9.2);
+    hInner += m.heightOfString(closeTitle, { width: COL_W });
+    hInner += 4;
+    let firstC = true;
+    for (const c of closing) {
+      if (!c.trim()) {
+        continue;
+      }
+      if (!firstC) {
+        hInner += 2.5;
+      }
+      firstC = false;
+      m.font("Times-Roman", 9.5);
+      hInner += m.heightOfString(c.trim(), { width: COL_W, align: "justify", lineGap: 1.4, paragraphGap: 0 });
+    }
+    return hInner + 4 + 1 + 5 + 12;
+  });
+  const yMax = CONTENT_MAX_Y;
+  if (doc.y + h > yMax) {
+    goToNextPageTop(doc);
+  }
+};
 
 /**
  * Añade pie (centrado) cerca del borde inferior de cada página en búfer.
+ * Las coordenadas deben quedar con y ≤ `page.maxY()`: con margen (p. ej. 60) el límite
+ * útil (≈782 pt en A4) queda *por encima* de "altura total − 22", y al usar p. ej. y = h − 22
+ * (≈819) el ajuste de líneas añadía hojas vacías al forzar salto (una por página con pie).
  */
 function addPageFooters(doc: PdfDoc) {
   const range = doc.bufferedPageRange();
   for (let p = 0; p < range.count; p++) {
     doc.switchToPage(range.start + p);
-    const h = doc.page?.height ?? H_PT;
-    const yLine = h - 28;
-    const yText = h - 22;
+    const page = doc.page;
+    if (!page) {
+      break;
+    }
+    const maxY = typeof page.maxY === "function" ? page.maxY() : CONTENT_MAX_Y;
+    const footerFontSize = 7.1;
     doc.save();
     doc.lineWidth(0.2);
-    doc.strokeColor("#d0d0d0");
+    doc.strokeColor(PAGE_LINE);
+    doc.fillColor("#94a3b8");
+    doc.font("Times-Italic", footerFontSize);
+    const lineH = doc.currentLineHeight(true) || 8.5;
+    const gapAboveText = 5;
+    const yText = maxY - lineH - 2;
+    const yLine = yText - gapAboveText;
+    const footer = `POS Ops · pág. ${p + 1} / ${range.count}`;
     doc.moveTo(M, yLine).lineTo(M + COL_W, yLine).stroke();
-    doc.fillColor(MUTED);
-    doc.font("Helvetica", 7.5);
-    const footer = `POS Ops · documento de trabajo · pág. ${p + 1} de ${range.count}`;
     doc.text(footer, M, yText, { width: COL_W, align: "center" });
     doc.restore();
   }
+  if (range.count > 0) {
+    doc.switchToPage(range.start + range.count - 1);
+  }
 }
 
-function measurePartyBlockHeight(doc: PdfDoc, model: DesarrolloSoftwarePdfModel) {
-  const inner = 10;
-  let h = inner;
-  for (const r of model.partyRows) {
-    const lab = (r.label ?? "").trim();
-    if (lab) {
-      doc.font("Times-Bold", 10);
-      h += doc.heightOfString(lab, { width: COL_W - 2 * inner, lineGap: 1 });
-      h += 2;
-      doc.font("Times-Italic", 8.8);
-      const hR = doc.heightOfString(r.role, { width: W_ROLE, lineGap: 1 });
-      doc.font("Times-Roman", 9.7);
-      const hN = doc.heightOfString(r.name, { width: W_NAME, lineGap: 1.2 });
-      h += Math.max(hR, hN) + 4;
-    } else {
-      doc.font("Times-Italic", 8.8);
-      const hR = doc.heightOfString(r.role, { width: 42, lineGap: 1 });
-      doc.font("Times-Roman", 9.7);
-      const hN = doc.heightOfString(r.name, { width: W_NAME, lineGap: 1.2 });
-      h += Math.max(hR, hN) + 2;
-    }
-  }
-  h += inner;
-  return h;
-}
-
-function drawPartyTable(doc: PdfDoc, model: DesarrolloSoftwarePdfModel) {
-  const top = doc.y;
-  const inner = 10;
-  const h = measurePartyBlockHeight(doc, model);
-
-  doc.save();
-  doc.lineWidth(0.45);
-  doc.roundedRect(M, top, COL_W, h, 2).fillAndStroke(BG_MUTED, BORDER);
-  doc.restore();
-
-  let y = top + inner;
-  for (const r of model.partyRows) {
-    const lab = (r.label ?? "").trim();
-    if (lab) {
-      doc.fillColor(LINE);
-      doc.font("Times-Bold", 10);
-      doc.text(lab, M + inner, y, { width: COL_W - 2 * inner, align: "left" });
-      y = doc.y;
-      const lineY = y;
-      doc.fillColor(MUTED);
-      doc.font("Times-Italic", 8.8);
-      const hR = doc.heightOfString(r.role, { width: W_ROLE, lineGap: 1 });
-      doc.text(r.role, COL_ROLE, lineY, { width: W_ROLE });
-      doc.fillColor(TEXT);
-      doc.font("Times-Roman", 9.7);
-      const hN = doc.heightOfString(r.name, { width: W_NAME, lineGap: 1.2 });
-      doc.text(r.name, COL_NAME, lineY, { width: W_NAME, align: "left" });
-      y = lineY + Math.max(hR, hN) + 2;
-    } else {
-      const lineY = y;
-      doc.fillColor(MUTED);
-      doc.font("Times-Italic", 8.8);
-      const hR = doc.heightOfString(r.role, { width: 42, lineGap: 1 });
-      doc.text(r.role, COL_ROLE, lineY, { width: 42 });
-      doc.fillColor(TEXT);
-      doc.font("Times-Roman", 9.7);
-      const hN = doc.heightOfString(r.name, { width: W_NAME, lineGap: 1.2 });
-      doc.text(r.name, COL_NAME, lineY, { width: W_NAME, align: "left" });
-      y = lineY + Math.max(hR, hN) + 1;
-    }
+/**
+ * Identificación de partes: solo texto, sin cajas ni franjas (estilo de escritura).
+ */
+function drawPartyCards(doc: PdfDoc, model: DesarrolloSoftwarePdfModel) {
+  const cards = partyRowsToCards(model);
+  if (cards.length === 0) {
+    return;
   }
 
-  doc.y = top + h + 14;
+  const textW = COL_W;
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    if (i > 0) {
+      doc.moveDown(1.1);
+    }
+
+    doc.fillColor(TEXT);
+    doc.font("Times-Bold", 8.7);
+    doc.text(card.title.toLocaleUpperCase("es-DO"), { width: textW, lineGap: 0 });
+    doc.moveDown(0.25);
+    doc.fillColor(MUTED);
+    doc.font("Times-Italic", 7.2);
+    doc.text("Razón social o denominación", { width: textW });
+    doc.moveDown(0.15);
+    doc.fillColor(TEXT);
+    doc.font("Times-Roman", 9.5);
+    doc.text(card.razon || "—", { width: textW, lineGap: 1.05 });
+    doc.moveDown(0.35);
+    doc.fillColor(MUTED);
+    doc.font("Times-Italic", 7.2);
+    doc.text("Representa", { width: textW });
+    doc.moveDown(0.15);
+    doc.fillColor(TEXT);
+    doc.font("Times-Roman", 9);
+    doc.text(card.representadoPor || "—", { width: textW, lineGap: 1.05 });
+  }
+
+  doc.x = M;
+  doc.fillColor(TEXT);
+  doc.moveDown(2.5);
 }
 
 function sectionBlock(doc: PdfDoc, title: string, paragraphs: string[]) {
-  doc.moveDown(1.2);
-  doc.fillColor(LINE);
-  doc.font("Times-Bold", 10.6);
+  doc.x = M;
+  doc.y += GAP_PRE_SECTION;
   const y0 = doc.y;
-  doc.text(title, M, y0, { width: COL_W, align: "left" });
+  doc.fillColor(TEXT);
+  doc.font("Times-Bold", 8.8);
+  doc.text(title, M, y0, { width: COL_W, align: "left", lineGap: 0.8 });
   const yAfterTitle = doc.y;
+  const yLine = yAfterTitle + SECTION_TITLE_GAP_BELOW_TEXT;
   doc.save();
-  doc.lineWidth(0.3);
-  doc.strokeColor(BORDER);
-  doc
-    .moveTo(M, yAfterTitle + 3)
-    .lineTo(M + COL_W, yAfterTitle + 3)
-    .stroke();
+  doc.lineWidth(0.35);
+  doc.strokeColor(ACCENT);
+  doc.moveTo(M, yLine).lineTo(M + COL_W, yLine).stroke();
   doc.restore();
-  doc.y = yAfterTitle + 5;
+  doc.y = yLine + SECTION_TITLE_LINE_PTS + SECTION_TITLE_GAP_TO_BODY;
 
   doc.fillColor(TEXT);
-  doc.font("Times-Roman", 10.4);
+  doc.font("Times-Roman", 9.6);
   for (const p of paragraphs) {
     if (p && p.trim()) {
-      doc.text(p.trim(), { width: COL_W, align: "justify", lineGap: 2, paragraphGap: 4 });
+      doc.text(p.trim(), { width: COL_W, align: "justify", lineGap: 1.35, paragraphGap: 2.5 });
     }
   }
-  doc.moveDown(7);
+  doc.moveDown(2.8);
 }
 
 export function buildDesarrolloSoftwarePdf(
@@ -148,7 +289,8 @@ export function buildDesarrolloSoftwarePdf(
   signatureImages: [Buffer | null, Buffer | null, Buffer | null],
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const model = getDesarrolloSoftwareContractPdfModel(data);
+    const d = sanitizeDesarrolloSoftwareInputForPdf(data);
+    const model = getDesarrolloSoftwareContractPdfModel(d);
     const doc = new PDFDocument({
       size: "A4",
       bufferPages: true,
@@ -164,112 +306,135 @@ export function buildDesarrolloSoftwarePdf(
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    /* Portada: cabecera, título, subtítulo */
+    /* Portada */
     doc.x = M;
-    doc.y = M + 4;
+    doc.y = M;
+    const yLine0 = doc.y;
     doc.save();
-    doc.lineWidth(0.6);
-    doc.strokeColor(LINE);
-    doc.moveTo(M, doc.y).lineTo(M + COL_W, doc.y).stroke();
-    doc.lineWidth(0.25);
-    doc.strokeColor(BORDER);
-    doc
-      .moveTo(M, doc.y + 1.5)
-      .lineTo(M + COL_W, doc.y + 1.5)
-      .stroke();
+    doc.lineWidth(2.2);
+    doc.strokeColor(ACCENT);
+    doc.moveTo(M, yLine0 + 0.2).lineTo(M + 54, yLine0 + 0.2).stroke();
     doc.restore();
-    doc.moveDown(10);
-
-    doc.fillColor(MUTED);
-    doc.font("Times-Italic", 9.2);
-    doc.text(model.documentKind.toUpperCase(), { width: COL_W, align: "center" });
-    doc.moveDown(18);
-
-    doc.fillColor(LINE);
-    doc.font("Times-Bold", 17.5);
-    doc.text(model.mainTitle, { width: COL_W, align: "center" });
-    doc.moveDown(12);
-    const yR = doc.y;
-    doc.save();
-    doc.lineWidth(0.4);
-    doc.strokeColor(LINE);
-    doc
-      .moveTo(M + 48, yR)
-      .lineTo(M + COL_W - 48, yR)
-      .stroke();
-    doc.restore();
-    doc.moveDown(20);
-
-    doc.fillColor(LINE);
-    doc.font("Times-Bold", 10.8);
-    doc.text("IDENTIFICACIÓN DE LAS PARTES", { width: COL_W, align: "left" });
-    doc.moveDown(3);
-
-    drawPartyTable(doc, model);
-
-    doc.fillColor(TEXT);
-    doc.font("Times-Roman", 10.6);
-    doc.text(model.leadIn, { width: COL_W, align: "justify", lineGap: 3, paragraphGap: 8 });
-    doc.moveDown(14);
-
-    for (const sec of model.sections) {
-      sectionBlock(doc, sec.title, sec.paragraphs);
-    }
-
-    doc.moveDown(4);
-    doc.fillColor(LINE);
-    doc.font("Times-Bold", 10.6);
-    doc.text("Cierre y asentimiento de lectura", { width: COL_W, align: "left" });
-    const yC = doc.y;
-    doc.save();
-    doc.lineWidth(0.4);
-    doc.strokeColor(LINE);
-    doc
-      .moveTo(M, yC - 1)
-      .lineTo(M + 170, yC - 1)
-      .stroke();
-    doc.restore();
-    doc.y = yC + 2;
-    doc.moveDown(2);
-
-    doc.fillColor(TEXT);
-    doc.font("Times-Roman", 10.2);
-    for (const c of model.closing) {
-      if (c.trim()) {
-        doc.text(c.trim(), { width: COL_W, align: "justify", lineGap: 2.5, paragraphGap: 4 });
-      }
-    }
-    doc.moveDown(8);
+    doc.moveDown(5);
 
     doc.fillColor(MUTED);
     doc.font("Times-Italic", 8.2);
-    doc.text("—  " + CONTRATO_PDF_NOTA_PIE, { width: COL_W, align: "center" });
+    doc.text(model.documentKind, { width: COL_W, align: "left" });
+    doc.moveDown(2);
+
+    doc.fillColor(TEXT);
+    doc.font("Times-Bold", 16.5);
+    doc.text(model.mainTitle, { width: COL_W, align: "left", lineGap: 2.2 });
+    doc.moveDown(5);
+    const yR = doc.y;
+    doc.save();
+    doc.lineWidth(0.3);
+    doc.strokeColor(PAGE_LINE);
+    doc.moveTo(M, yR).lineTo(M + 64, yR).stroke();
+    doc.restore();
+    doc.moveDown(9);
+
+    const yId = doc.y;
+    const identTitle = "Identificación de las partes";
+    doc.fillColor(TEXT);
+    doc.font("Times-Bold", 9.2);
+    doc.text(identTitle, M, yId, { width: COL_W, align: "left" });
+    const yIdAfter = doc.y;
+    doc.save();
+    doc.strokeColor(ACCENT);
+    doc.lineWidth(0.4);
+    doc
+      .moveTo(M, yIdAfter + 1)
+      .lineTo(M + 160, yIdAfter + 1)
+      .stroke();
+    doc.restore();
+    doc.y = yIdAfter + 6;
+    doc.moveDown(0);
+
+    drawPartyCards(doc, model);
+
+    doc.fillColor(TEXT);
+    doc.font("Times-Roman", 9.7);
+    doc.text(model.leadIn, { width: COL_W, align: "justify", lineGap: 1.45, paragraphGap: 3 });
+    doc.moveDown(4.5);
+
+    for (const sec of model.sections) {
+      ensureSectionPageLayout(doc, sec.title, sec.paragraphs);
+      sectionBlock(doc, sec.title, sec.paragraphs);
+    }
+
+    ensureClosingBlockLayout(doc, model.closing);
+    doc.moveDown(0.5);
+    const yCloseLabel = doc.y;
+    const closeTitle = "Cierre y asentimiento de lectura";
+    doc.fillColor(TEXT);
+    doc.font("Times-Bold", 9.2);
+    doc.text(closeTitle, M, yCloseLabel, { width: COL_W, align: "left" });
+    const yC = doc.y;
+    doc.save();
+    doc.lineWidth(0.32);
+    doc.strokeColor(ACCENT);
+    doc
+      .moveTo(M, yC + 1)
+      .lineTo(M + 200, yC + 1)
+      .stroke();
+    doc.restore();
+    doc.y = yC + 3;
+
+    doc.fillColor(TEXT);
+    doc.font("Times-Roman", 9.5);
+    for (const c of model.closing) {
+      if (c.trim()) {
+        doc.text(c.trim(), { width: COL_W, align: "justify", lineGap: 1.4, paragraphGap: 2.5 });
+      }
+    }
+    doc.moveDown(4);
+
+    doc.save();
+    doc.lineWidth(0.25);
+    doc.strokeColor(BORDER);
+    const yN = doc.y;
+    doc.moveTo(M, yN).lineTo(M + COL_W, yN).stroke();
+    doc.restore();
+    doc.moveDown(3);
+    doc.fillColor(MUTED);
+    doc.font("Times-Italic", 7.4);
+    doc.text(CONTRATO_PDF_NOTA_PIE, { width: COL_W, align: "center" });
     doc.fillColor(TEXT);
 
     /* Hoja de firmas */
     doc.addPage();
     doc.x = M;
-    doc.y = M + 6;
-    doc.font("Times-Bold", 15.5);
-    doc.text("FIRMAS Y CONSTANCIAS", { width: COL_W, align: "left" });
+    doc.y = M;
+    const yH0 = doc.y;
+    doc.save();
+    doc.lineWidth(2.2);
+    doc.strokeColor(ACCENT);
+    doc.moveTo(M, yH0 + 0.2).lineTo(M + 54, yH0 + 0.2).stroke();
+    doc.restore();
+    doc.moveDown(8);
+    doc.fillColor(TEXT);
+    doc.font("Times-Bold", 13.5);
+    doc.text("Firmas y constancias", { width: COL_W, align: "left" });
     const yU = doc.y;
     doc.save();
-    doc.lineWidth(0.5);
-    doc.strokeColor(LINE);
+    doc.lineWidth(0.35);
+    doc.strokeColor(PAGE_LINE);
     doc
       .moveTo(M, yU + 2)
-      .lineTo(M + 180, yU + 2)
+      .lineTo(M + 200, yU + 2)
       .stroke();
     doc.restore();
-    doc.y = yU + 6;
-    doc.moveDown(14);
+    doc.y = yU + 3;
+    doc.moveDown(6);
 
-    doc.font("Times-Roman", 10.4);
+    doc.fillColor(TEXT);
+    doc.font("Times-Roman", 9.1);
     doc.text(
-      "FIRMA DE LOS COLABORADORES (equipo de venta / comercial vinculado a EL DESARROLLADOR). Cada trazo se capturó en el formulario; si quedó vacío, se podrá consignar la firma manuscrita al imprimir el documento.",
-      { width: COL_W, align: "justify", lineGap: 2 },
+      "Firmas de colaboradores (comercial, EL PRESTADOR). Trazo capturado en el formulario; si un recuadro queda vacío, resérvelo para firma manuscrita al imprimir.",
+      { width: COL_W, align: "justify", lineGap: 1.25 },
     );
-    doc.moveDown(12);
+    doc.moveDown(6);
 
     const w = 140;
     const h = 54;
@@ -277,46 +442,88 @@ export function buildDesarrolloSoftwarePdf(
     const ySig = doc.y;
     for (let i = 0; i < 3; i++) {
       const x = M + i * (w + gap);
+      const boxH = h * 0.75;
       const buf = signatureImages[i];
       if (buf && buf.length > 0) {
         try {
-          doc.image(buf, x, ySig, { fit: [w, h] });
+          doc.image(buf, x, ySig, { fit: [w, boxH] });
         } catch {
-          doc.lineWidth(0.4);
-          doc.rect(x, ySig, w, h * 0.72).stroke();
-          doc.font("Times-Italic", 6.5);
-          doc.text("(firma no incorporada al PDF)", x, ySig + h * 0.3, { width: w, align: "center" });
+          doc.save();
+          doc.lineWidth(0.35);
+          doc.fillColor("#f8fafc");
+          doc.strokeColor(BORDER);
+          doc.roundedRect(x, ySig, w, boxH, 2).fill();
+          doc.roundedRect(x, ySig, w, boxH, 2).stroke();
+          doc.restore();
+          doc.fillColor(MUTED);
+          doc.font("Times-Italic", 6.3);
+          doc.text("Firma no incorporada", x, ySig + boxH * 0.4, { width: w, align: "center" });
+          doc.fillColor(TEXT);
         }
       } else {
+        doc.save();
         doc.lineWidth(0.4);
-        doc.rect(x, ySig, w, h * 0.72).stroke();
+        doc.strokeColor(BORDER);
+        doc.fillColor("#f8fafc");
+        doc.roundedRect(x, ySig, w, boxH, 2).fill();
+        doc.roundedRect(x, ySig, w, boxH, 2).stroke();
+        doc.restore();
         doc.fillColor(MUTED);
-        doc.font("Times-Italic", 7.2);
-        doc.text("Reservado para\nfirma manuscrita", x, ySig + 14, { width: w, align: "center" });
+        doc.font("Times-Italic", 6.8);
+        doc.text("Firma manuscrita", x, ySig + 14, { width: w, align: "center" });
         doc.fillColor(TEXT);
       }
-      doc.font("Times-Roman", 6.5);
+      doc.font("Times-Roman", 6.6);
+      doc.fillColor(MUTED);
       doc.text(`Colaborador ${i + 1}`, x, ySig + h + 5, { width: w, align: "center" });
+      doc.fillColor(TEXT);
     }
     const afterS = ySig + h + 32;
     doc.y = afterS;
     doc.moveDown(2);
-    doc.font("Times-Roman", 9.8);
-    doc.text("Por EL DESARROLLADOR: " + data.empresaDesarrolladora, { width: COL_W });
-    doc.text("Quien comparece: " + data.representanteDesarrollador, { width: COL_W });
-    doc.moveDown(16);
+    doc.save();
+    doc.lineWidth(0.25);
+    doc.strokeColor(BORDER);
+    doc
+      .moveTo(M, doc.y)
+      .lineTo(M + COL_W, doc.y)
+      .stroke();
+    doc.restore();
+    doc.moveDown(5);
+    doc.fillColor(MUTED);
+    doc.font("Times-Italic", 7.3);
+    doc.text("EL PRESTADOR", { width: COL_W });
+    doc.moveDown(0.8);
+    doc.fillColor(TEXT);
+    doc.font("Times-Roman", 9.2);
+    doc.text(d.empresaDesarrolladora, { width: COL_W });
+    doc.text(d.representanteDesarrollador, { width: COL_W, lineGap: 1.15 });
+    doc.moveDown(8);
 
-    doc.font("Times-Bold", 12);
+    doc.save();
+    doc.lineWidth(0.25);
+    doc.strokeColor(BORDER);
+    doc
+      .moveTo(M, doc.y)
+      .lineTo(M + COL_W, doc.y)
+      .stroke();
+    doc.restore();
+    doc.moveDown(3.5);
+    doc.fillColor(MUTED);
+    doc.font("Times-Italic", 7.3);
     doc.text("EL CLIENTE", { width: COL_W });
-    doc.moveDown(2);
-    doc.font("Times-Roman", 10.4);
-    doc.text(data.nombreCliente, { width: COL_W });
-    doc.text(data.clienteEmpresa, { width: COL_W });
-    doc.moveDown(6);
-    doc.font("Times-Italic", 8.4);
-    doc.text("Línea para rúbrica, firma o sello, si aplica, en el original impreso —", { width: COL_W });
-    doc.text("_______________________________", { width: COL_W });
-    doc.font("Times-Roman", 9.5);
+    doc.moveDown(0.8);
+    doc.font("Times-Roman", 9.2);
+    doc.fillColor(TEXT);
+    doc.text(d.nombreCliente, { width: COL_W });
+    doc.text(d.clienteEmpresa, { width: COL_W, lineGap: 1.15 });
+    doc.moveDown(3.5);
+    doc.fillColor(MUTED);
+    doc.font("Times-Italic", 7.5);
+    doc.text("Firma o sello (en original, si aplica).", { width: COL_W });
+    doc.text("—".repeat(42), { width: COL_W, align: "left" });
+    doc.font("Times-Roman", 9.1);
+    doc.fillColor(TEXT);
 
     addPageFooters(doc);
     doc.end();
