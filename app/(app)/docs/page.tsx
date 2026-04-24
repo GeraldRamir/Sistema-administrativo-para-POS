@@ -20,21 +20,23 @@ const routes = [
   { method: "GET", path: "/api/v1/pos/ping", note: "Health del API del POS (POS_API_BASE_URL)" },
 ] as const;
 
+const link = "text-primary underline-offset-2 hover:underline";
+
 export default function ApiDocsPage() {
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">API REST (v1)</h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">API REST (v1)</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Las rutas viven en esta misma aplicación Next.js bajo{" "}
-          <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-800">/api/v1</code>. En producción use la
+          <code className="rounded bg-muted px-1.5 font-mono text-xs text-foreground">/api/v1</code>. En producción use la
           URL pública de pos-ops, p. ej. <span className="font-mono text-xs">https://ops.su-dominio.com/api/v1/...</span>
         </p>
       </div>
-      <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
-        <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Autenticación</h3>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Si define <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-800">OPS_API_KEY</code> en{" "}
+      <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+        <h3 className="text-sm font-medium text-foreground">Autenticación</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Si define <code className="rounded bg-muted px-1.5 font-mono text-xs">OPS_API_KEY</code> en{" "}
           <code className="font-mono text-xs">.env</code>, toda ruta bajo <code className="font-mono text-xs">/api/*</code>{" "}
           excepto <code className="font-mono text-xs">GET /api/health</code> y{" "}
           <code className="font-mono text-xs">GET /api/v1/health</code> exigirá{" "}
@@ -44,30 +46,30 @@ export default function ApiDocsPage() {
         </p>
       </section>
       <section className="space-y-2">
-        <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Rutas</h3>
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <h3 className="text-sm font-medium text-foreground">Rutas</h3>
+        <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full min-w-[32rem] text-left text-sm">
-            <thead className="bg-zinc-50 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+            <thead className="bg-muted/60 text-foreground/90">
               <tr>
                 <th className="px-3 py-2 font-medium">Método</th>
                 <th className="px-3 py-2 font-medium">Ruta</th>
                 <th className="px-3 py-2 font-medium">Notas</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <tbody className="divide-y divide-border">
               {routes.map((r) => (
-                <tr key={`${r.method} ${r.path}`} className="bg-white dark:bg-zinc-900/30">
-                  <td className="px-3 py-2 font-mono text-xs text-violet-700 dark:text-violet-400">{r.method}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-zinc-900 dark:text-zinc-200">{r.path}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{r.note}</td>
+                <tr key={`${r.method} ${r.path}`} className="bg-card">
+                  <td className="px-3 py-2 font-mono text-xs text-primary">{r.method}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-foreground">{r.path}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{r.note}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </section>
-      <p className="text-sm text-zinc-500">
-        <Link href="/dashboard" className="text-violet-600 underline dark:text-violet-400">
+      <p className="text-sm text-muted-foreground">
+        <Link href="/dashboard" className={link}>
           Volver al inicio
         </Link>
       </p>

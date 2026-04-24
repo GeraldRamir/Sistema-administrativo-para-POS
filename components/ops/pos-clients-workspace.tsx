@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { MailDeliveryStatus } from "@/lib/mail";
 import type { PosUsersFetchResult } from "@/lib/pos-users";
 import { PosUsersMailTable } from "@/components/ops/pos-users-mail-table";
+import { PageHeader } from "@/components/ops/form-primitives";
 
 type Q = { [k: string]: string | string[] | undefined };
 
@@ -21,23 +22,12 @@ function countByRole(members: { role: string }[]) {
 
 type Props = {
   result: PosUsersFetchResult;
-  posApiBase: string | null;
-  hasServiceKey: boolean;
-  hasDbUrl: boolean;
   posAppUrl: string;
   mailDelivery: MailDeliveryStatus;
   searchParams: Q;
 };
 
-export function PosClientsWorkspace({
-  result,
-  posApiBase,
-  hasServiceKey,
-  hasDbUrl,
-  posAppUrl,
-  mailDelivery,
-  searchParams,
-}: Props) {
+export function PosClientsWorkspace({ result, posAppUrl, mailDelivery, searchParams }: Props) {
   const mailOk = first(searchParams, "mailOk");
   const mailError = first(searchParams, "mailError");
   const toAddr = first(searchParams, "to");
@@ -46,18 +36,20 @@ export function PosClientsWorkspace({
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Clientes (POS System)</h1>
-        <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-          Administración de <strong>usuarios</strong> de la instancia conectada al producto. El botón <strong>Enviar
-          correo</strong> dispara de forma inmediata un correo con plantilla fija para el asistente de acceso
-          (configuración o inicio de sesión). Es independiente de{" "}
-          <Link className="text-primary underline-offset-2 hover:underline" href="/comms">
-            Comunicados
-          </Link>{" "}
-          (redacción libre).
-        </p>
-      </div>
+      <PageHeader
+        title="Clientes (POS System)"
+        description={
+          <>
+            Administración de <strong>usuarios</strong> de la instancia conectada al producto. El botón <strong>Enviar
+            correo</strong> dispara de inmediato un correo con plantilla fija para el asistente de acceso. Es
+            independiente de{" "}
+            <Link className="text-primary underline-offset-2 hover:underline" href="/comms">
+              Comunicados
+            </Link>{" "}
+            (redacción libre).
+          </>
+        }
+      />
 
       {mailDelivery.mode === "missing" ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
@@ -173,39 +165,6 @@ export function PosClientsWorkspace({
           </div>
         </div>
       ) : null}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground shadow-sm sm:p-5">
-          <h2 className="text-sm font-semibold text-foreground">Conexión al producto</h2>
-          <ul className="mt-3 space-y-2">
-            <li>
-              <span className="text-foreground">API (POS)</span>{" "}
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">{posApiBase ?? "no configurada"}</code>
-            </li>
-            <li>
-              <span className="text-foreground">Clave de integración</span>{" "}
-              {hasServiceKey ? <span className="text-success">definida</span> : <span>falta POS_SERVICE_KEY</span>}
-            </li>
-            <li>
-              <span className="text-foreground">Lectura directa BD</span>{" "}
-              {hasDbUrl ? <span className="text-success">POS_DATABASE_URL</span> : <span>no configurada</span>}
-            </li>
-            <li>
-              <span className="text-foreground">Enlace en correo de acceso (plantilla)</span>{" "}
-              <code className="break-all rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">{posAppUrl}</code>
-            </li>
-          </ul>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground shadow-sm sm:p-5">
-          <h2 className="text-sm font-semibold text-foreground">Tareas de administración</h2>
-          <ul className="mt-3 list-inside list-disc space-y-1.5">
-            <li>Envíe el correo de <strong>activación de contraseña</strong> solo al destinatario: el enlace le abre <code className="text-xs">/setup/claim</code> con un código; no tendrá que escribir su correo. Luego podrá ir a <code className="text-xs">/login</code>.</li>
-            <li>Ajuste <code className="text-xs">POS_APP_PUBLIC_URL</code> en pos-ops para que los enlaces apunten al despliegue real.</li>
-            <li>Compruebe SMTP: <code className="text-xs">SMTP_HOST</code>, <code className="text-xs">MAIL_FROM</code> o <code className="text-xs">MAIL_LOG_ONLY</code>.</li>
-            <li>Para mensajes de marketing o convocatoria use el módulo <Link className="text-primary underline" href="/comms">Comunicados</Link>.</li>
-          </ul>
-        </div>
-      </div>
 
       {!result.ok ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">

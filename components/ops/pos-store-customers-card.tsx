@@ -5,14 +5,16 @@ import { Card, Muted } from "./form-primitives";
 const money = (n: number) =>
   n.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const link = "text-primary text-xs font-medium underline-offset-2 hover:underline";
+
 export function PosStoreCustomersCard({ result }: { result: PosStoreCustomersResult }) {
   if (!result.ok) {
     return (
       <Card>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Clientes en el POS (catálogo)</h3>
+        <h3 className="text-sm font-semibold text-foreground">Clientes en el POS (catálogo)</h3>
         <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">{result.message}</p>
         {result.detail ? (
-          <pre className="mt-2 max-h-40 overflow-auto rounded border border-amber-100 bg-amber-50/50 p-2 text-xs text-zinc-600 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-zinc-400">
+          <pre className="mt-2 max-h-40 overflow-auto rounded border border-amber-500/30 bg-amber-50/50 p-2 text-xs text-muted-foreground dark:bg-amber-950/20">
             {result.detail}
           </pre>
         ) : null}
@@ -27,8 +29,8 @@ export function PosStoreCustomersCard({ result }: { result: PosStoreCustomersRes
   if (result.customers.length === 0) {
     return (
       <Card>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Clientes en el POS (catálogo)</h3>
-        <p className="mt-2 text-sm text-zinc-500">No hay clientes en el catálogo o la lista está vacía.</p>
+        <h3 className="text-sm font-semibold text-foreground">Clientes en el POS (catálogo)</h3>
+        <p className="mt-2 text-sm text-muted-foreground">No hay clientes en el catálogo o la lista está vacía.</p>
       </Card>
     );
   }
@@ -37,21 +39,18 @@ export function PosStoreCustomersCard({ result }: { result: PosStoreCustomersRes
     <Card>
       <div className="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Clientes en el POS (catálogo)</h3>
-          <p className="text-xs text-zinc-500">
+          <h3 className="text-sm font-semibold text-foreground">Clientes en el POS (catálogo)</h3>
+          <p className="text-xs text-muted-foreground">
             {result.customers.length} registro{result.customers.length === 1 ? "" : "s"} (todas las sucursales, GET público).
           </p>
         </div>
-        <Link
-          className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
-          href="/comms"
-        >
+        <Link className={link} href="/comms">
           Ir a Comunicados
         </Link>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[44rem] text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+          <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Sucursal (id)</th>
               <th className="px-3 py-2">Nombre</th>
@@ -62,19 +61,19 @@ export function PosStoreCustomersCard({ result }: { result: PosStoreCustomersRes
               <th className="px-3 py-2">Acción</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          <tbody className="divide-y divide-border">
             {result.customers.map((c) => (
-              <tr key={c.id} className="bg-white dark:bg-zinc-900/20">
-                <td className="px-3 py-2 font-mono text-xs text-zinc-500 dark:text-zinc-400" title={c.branchId || undefined}>
+              <tr key={c.id} className="bg-card">
+                <td className="px-3 py-2 font-mono text-xs text-muted-foreground" title={c.branchId || undefined}>
                   {c.branchId
                     ? c.branchId.length > 12
                       ? `${c.branchId.slice(0, 10)}…`
                       : c.branchId
                     : "—"}
                 </td>
-                <td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">{c.name}</td>
-                <td className="px-3 py-2 font-mono text-xs text-zinc-600 dark:text-zinc-400">{c.identification}</td>
-                <td className="px-3 py-2 text-zinc-600 dark:text-zinc-300">
+                <td className="px-3 py-2 font-medium text-foreground">{c.name}</td>
+                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{c.identification}</td>
+                <td className="px-3 py-2 text-muted-foreground">
                   {c.email?.trim() ? c.email : "—"}
                 </td>
                 <td className="px-3 py-2 text-right font-mono text-xs">{money(c.balance)}</td>
@@ -82,7 +81,7 @@ export function PosStoreCustomersCard({ result }: { result: PosStoreCustomersRes
                 <td className="px-3 py-2">
                   {c.email?.trim() ? (
                     <Link
-                      className="text-violet-600 hover:underline dark:text-violet-400"
+                      className="text-sm text-primary underline-offset-2 hover:underline"
                       href={`/comms?to=${encodeURIComponent(c.email.trim())}`}
                     >
                       Enviar comunicado

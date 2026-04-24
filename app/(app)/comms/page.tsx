@@ -22,7 +22,7 @@ export default async function CommsPage({ searchParams }: { searchParams: Promis
     <div className="space-y-6">
       <PageHeader
         title="Comunicados"
-        description="Redacte y envíe mensajes por correo (SMTP) o, en desarrollo, use MAIL_LOG_ONLY para ver en consola. Cada envío o error queda en el registro a continuación. Puede abrir Comunicados con ?to= (destinatario) desde la lista de usuarios o clientes en Clientes (lectura de la base del producto)."
+        description="Redacte y envíe mensajes por correo (SMTP) o, en desarrollo, use MAIL_LOG_ONLY para ver en consola. Cada envío o error queda en el registro. Puede abrir Comunicados con ?to= (destinatario) desde listas de usuarios o clientes."
       />
       <div className="grid gap-6 lg:grid-cols-1">
         <Card>
@@ -33,13 +33,13 @@ export default async function CommsPage({ searchParams }: { searchParams: Promis
         </Card>
       </div>
       <div>
-        <h3 className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Log de salidas (recientes)</h3>
+        <h3 className="text-sm font-medium text-foreground">Log de salidas (recientes)</h3>
         {rows.length === 0 ? (
-          <p className="mt-2 text-sm text-zinc-500">Aún no hay entradas. Envíe un mensaje o una prueba arriba.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Aún no hay entradas. Envíe un mensaje o una prueba arriba.</p>
         ) : (
-          <div className="mt-2 max-h-96 overflow-auto rounded-xl border border-zinc-200 text-sm dark:border-zinc-800">
+          <div className="mt-2 max-h-96 overflow-auto rounded-xl border border-border text-sm">
             <table className="w-full min-w-[32rem] text-left">
-              <thead className="sticky top-0 bg-zinc-50 text-xs uppercase text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+              <thead className="sticky top-0 bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-2 py-2">Cuándo</th>
                   <th className="px-2 py-2">A</th>
@@ -47,25 +47,21 @@ export default async function CommsPage({ searchParams }: { searchParams: Promis
                   <th className="px-2 py-2">Estado</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              <tbody className="divide-y divide-border">
                 {rows.map((e) => (
-                  <tr key={e.id} className="bg-white dark:bg-zinc-900/20">
-                    <td className="px-2 py-2 text-xs text-zinc-500">
-                      {e.createdAt.toLocaleString("es-DO")}
-                    </td>
+                  <tr key={e.id} className="bg-card">
+                    <td className="px-2 py-2 text-xs text-muted-foreground">{e.createdAt.toLocaleString("es-DO")}</td>
                     <td className="px-2 py-2 text-xs break-all">{e.toEmail}</td>
                     <td className="px-2 py-2">{e.subject}</td>
                     <td className="px-2 py-2">
                       <span
                         className={
-                          e.status === "SENT" || e.status === "LOG_ONLY"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-red-600 dark:text-red-400"
+                          e.status === "SENT" || e.status === "LOG_ONLY" ? "text-success" : "text-destructive"
                         }
                       >
                         {e.status}
                       </span>
-                      {e.error ? <span className="block text-xs text-red-500">{e.error}</span> : null}
+                      {e.error ? <span className="block text-xs text-destructive/90">{e.error}</span> : null}
                     </td>
                   </tr>
                 ))}
@@ -75,7 +71,8 @@ export default async function CommsPage({ searchParams }: { searchParams: Promis
         )}
         <div className="mt-2">
           <Muted>
-            Ajuste SMTP_*, MAIL_FROM y, si aplica, <code className="font-mono">MAIL_LOG_ONLY</code> en <code className="font-mono">.env</code>.
+            Ajuste SMTP_*, MAIL_FROM y, si aplica, <code className="font-mono">MAIL_LOG_ONLY</code> en{" "}
+            <code className="font-mono">.env</code>.
           </Muted>
         </div>
       </div>

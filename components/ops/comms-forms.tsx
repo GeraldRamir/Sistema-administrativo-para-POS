@@ -25,7 +25,7 @@ export function CommsMainForm({ clients, defaultTo }: { clients: Opt[]; defaultT
   const [state, formAction] = useActionState<CommsFormState, FormData>(sendCommsFormAction, null);
   return (
     <form action={formAction} className="space-y-3">
-      <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Mensaje saliente</h3>
+      <h3 className="text-sm font-medium text-foreground">Mensaje saliente</h3>
       {state?.ok === false ? <FormAlert type="err" message={state.error} /> : null}
       {state?.ok && state.message ? <FormAlert type="ok" message={state.message} /> : null}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -77,8 +77,8 @@ export function CommsMainForm({ clients, defaultTo }: { clients: Opt[]; defaultT
 export function CommsTestForm() {
   const [state, formAction] = useActionState<CommsFormState, FormData>(testCommsFormAction, null);
   return (
-    <form action={formAction} className="space-y-2 border-t border-zinc-200 pt-5 dark:border-zinc-800">
-      <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Probar conexión SMTP o modo log</h3>
+    <form action={formAction} className="space-y-2 border-t border-border pt-5">
+      <h3 className="text-sm font-medium text-foreground">Probar conexión SMTP o modo log</h3>
       {state?.ok === false ? <FormAlert type="err" message={state.error} /> : null}
       {state?.ok && state.message ? <FormAlert type="ok" message={state.message} /> : null}
       <div className={labelBoxClass + " max-w-md"}>

@@ -1,0 +1,109 @@
+"use server";
+
+import { desarrolloSoftwareContractSchema } from "@/lib/validators";
+import { buildDesarrolloSoftwarePdf } from "@/lib/contract-pdf/desarrollo-software-pdf";
+import { desarrolloSoftwareFileName } from "@/lib/contract-templates/desarrollo-software";
+
+/** Tamaño máx. decodificado (PNG de firma dibujada en pantalla) */
+const MAX_SIGNATURE_PNG = 1_000_000;
+
+export type ContractGenerateState =
+  | null
+  | { ok: false; error: string }
+  | { ok: true; download: { name: string; pdfBase64: string } };
+
+function err(m: string): ContractGenerateState {
+  return { ok: false, error: m };
+}
+
+/** Acepta base64 (del canvas `toDataURL`) o cadena vacía. Valida cabecera PNG. */
+function pngBase64ToBuffer(raw: string | null, label: string): Buffer | null {
+  if (raw == null) {
+    return null;
+  }
+  const t = String(raw).trim();
+  if (!t) {
+    return null;
+  }
+  if (t.length > 1_500_000) {
+    throw new Error(`${label}: trazo de firma demasiado extenso. Limpie y vuelva a firmar.`);
+  }
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(t, "base64");
+  } catch {
+    throw new Error(`${label}: datos de firma no legibles.`);
+  }
+  if (buf.length > MAX_SIGNATURE_PNG) {
+    throw new Error(`${label}: la firma genera una imagen demasiado grande. Reduzca trazos o ancho.`);
+  }
+  if (buf.length < 8) {
+    return null;
+  }
+  if (buf[0] !== 0x89 || buf[1] !== 0x50) {
+    throw new Error(`${label}: solo se acepta PNG generado en el recuadro.`);
+  }
+  return buf;
+}
+
+export async function generateContractAction(
+  _prev: ContractGenerateState,
+  formData: FormData,
+): Promise<ContractGenerateState> {
+  const kind = String(formData.get("kind") ?? "").trim();
+
+  if (kind !== "DESARROLLO_SOFTWARE") {
+    return err("Ese tipo de contrato aún no está disponible. Elija «Desarrollo de software».");
+  }
+
+  const raw = {
+    empresaDesarrolladora: String(formData.get("empresaDesarrolladora") ?? ""),
+    representanteDesarrollador: String(formData.get("representanteDesarrollador") ?? ""),
+    clienteEmpresa: String(formData.get("clienteEmpresa") ?? ""),
+    nombreCliente: String(formData.get("nombreCliente") ?? ""),
+    proyecto: String(formData.get("proyecto") ?? ""),
+    modulos: String(formData.get("modulos") ?? ""),
+    montoTotal: String(formData.get("montoTotal") ?? ""),
+    inicial: String(formData.get("inicial") ?? ""),
+    cuotas: String(formData.get("cuotas") ?? ""),
+    diasHabiles: formData.get("diasHabiles"),
+    fechaInicio: String(formData.get("fechaInicio") ?? ""),
+    fechaEntrega: String(formData.get("fechaEntrega") ?? ""),
+    tecnologias: String(formData.get("tecnologias") ?? ""),
+    mesesSoporte: formData.get("mesesSoporte"),
+    quienPoseeCodigo: String(formData.get("quienPoseeCodigo") ?? ""),
+    penalidadAtrasoPago: String(formData.get("penalidadAtrasoPago") ?? ""),
+    jurisdiccion: String(formData.get("jurisdiccion") ?? ""),
+    fechaHoy: String(formData.get("fechaHoy") ?? ""),
+  };
+
+  const parsed = desarrolloSoftwareContractSchema.safeParse(raw);
+  if (!parsed.success) {
+    const first = parsed.error.flatten().fieldErrors;
+    const msg = Object.values(first).flat()[0] ?? "Revise los campos obligatorios y los valores numéricos.";
+    return err(msg);
+  }
+
+  let sig1: Buffer | null = null;
+  let sig2: Buffer | null = null;
+  let sig3: Buffer | null = null;
+  try {
+    const g1 = formData.get("firmaColaborador1Png");
+    const g2 = formData.get("firmaColaborador2Png");
+    const g3 = formData.get("firmaColaborador3Png");
+    sig1 = pngBase64ToBuffer(typeof g1 === "string" ? g1 : null, "Colaborador 1");
+    sig2 = pngBase64ToBuffer(typeof g2 === "string" ? g2 : null, "Colaborador 2");
+    sig3 = pngBase64ToBuffer(typeof g3 === "string" ? g3 : null, "Colaborador 3");
+  } catch (e) {
+    return err(e instanceof Error ? e.message : "Error al leer la firma.");
+  }
+
+  const pdf = await buildDesarrolloSoftwarePdf(parsed.data, [sig1, sig2, sig3]);
+  const name = desarrolloSoftwareFileName(parsed.data.proyecto, "pdf");
+  const pdfBase64 = pdf.toString("base64");
+
+  return {
+    ok: true,
+    download: { name, pdfBase64 },
+  };
+}
