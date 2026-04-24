@@ -101,7 +101,7 @@ export function DocumentForm({ clients, defaultClientId }: { clients: Opt[]; def
         </div>
         <div className="flex items-start gap-2 sm:col-span-2">
           <input id="d-with" name="withTemplate" type="checkbox" value="true" className="mt-0.5 h-4 w-4 rounded" />
-          <label htmlFor="d-with" className="text-sm text-zinc-700 dark:text-zinc-200">
+          <label htmlFor="d-with" className="text-sm text-foreground/90">
             Tras el registro, <strong>generar y descargar</strong> un borrador en <code className="text-xs">.txt</code>{" "}
             (texto informativo; defina términos con legal / contratos oficiales).
           </label>

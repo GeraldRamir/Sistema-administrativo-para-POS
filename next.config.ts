@@ -7,7 +7,12 @@ config({ path: path.join(process.cwd(), ".env"), override: true });
 config({ path: path.join(process.cwd(), ".env.local"), override: true });
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["pdfkit"],
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
 };
 
 export default nextConfig;

@@ -16,7 +16,7 @@ export function RevenueForm({ clients, defaultClientId, heading = "Añadir ingre
   const [state, formAction] = useActionState<RevenueFormState, FormData>(addRevenueFormAction, null);
   return (
     <form action={formAction} className="space-y-3">
-      <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{heading}</h3>
+      <h3 className="text-sm font-medium text-foreground">{heading}</h3>
       {state?.ok === false ? <FormAlert type="err" message={state.error} /> : null}
       {state?.ok && state.message ? <FormAlert type="ok" message={state.message} /> : null}
       <div className="grid gap-3 sm:grid-cols-2">

@@ -20,7 +20,7 @@ export function DeleteClientForm({ clientId }: { clientId: string }) {
     <form action={formAction} className="space-y-2">
       <input type="hidden" name="clientId" value={clientId} />
       {state?.ok === false ? <FormAlert type="err" message={state.error} /> : null}
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted-foreground">
         Esta acción no se puede deshacer: se borran ingresos, documentos e historial asociados a este cliente (CASCADE).
       </p>
       <div className="pt-1">

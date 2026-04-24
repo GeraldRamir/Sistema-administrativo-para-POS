@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getClientById, getClientOptions } from "@/lib/queries";
 import { documentKindLabel, clientStatusLabel } from "@/lib/labels";
-import { Card, Muted, PageHeader } from "@/components/ops/form-primitives";
+import { appShellLink, Card, Muted, PageHeader } from "@/components/ops/form-primitives";
 import { ClientEditForm } from "@/components/ops/client-edit-form";
 import { DocumentForm } from "@/components/ops/document-form";
 import { DeleteClientForm } from "@/components/ops/delete-client-form";
@@ -44,28 +44,25 @@ export default async function ClientDetailPage({
         title={client.companyName}
         description={clientStatusLabel[client.status]}
         actions={
-          <Link
-            className="text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
-            href="/clients"
-          >
+          <Link className={appShellLink} href="/clients">
             Todos los clientes
           </Link>
         }
       />
 
       {created ? (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+        <p className="rounded-md border border-success/30 bg-success/5 px-3 py-2 text-sm text-foreground">
           Cliente creado. Puede completar la ficha abajo.
         </p>
       ) : null}
       {saved ? (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+        <p className="rounded-md border border-success/30 bg-success/5 px-3 py-2 text-sm text-foreground">
           Cambios guardados.
         </p>
       ) : null}
 
       <Card>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Datos generales</h3>
+        <h3 className="text-sm font-semibold text-foreground">Datos generales</h3>
         <div className="mt-3">
           <ClientEditForm client={client} />
         </div>
@@ -73,22 +70,22 @@ export default async function ClientDetailPage({
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Ingresos recientes</h3>
-          <p className="text-xs text-zinc-500">Monto y moneda internas (no e‑CF en esta consola)</p>
+          <h3 className="text-sm font-semibold text-foreground">Ingresos recientes</h3>
+          <p className="text-xs text-muted-foreground">Monto y moneda internas (no e‑CF en esta consola)</p>
           {client.revenue.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-500">Aún no hay filas. Use el formulario de al lado o el módulo Ingresos.</p>
+            <p className="mt-3 text-sm text-muted-foreground">Aún no hay filas. Use el formulario de al lado o el módulo Ingresos.</p>
           ) : (
             <ul className="mt-2 max-h-64 space-y-1 overflow-auto text-sm">
               {client.revenue.map((r) => (
                 <li
                   key={r.id}
-                  className="flex justify-between border-b border-zinc-100 py-1.5 last:border-0 dark:border-zinc-800"
+                  className="flex justify-between border-b border-border py-1.5 last:border-0"
                 >
                   <span>
                     {fmtMoney(r.amount)} {r.currency}
-                    {r.label ? <span className="text-zinc-500"> — {r.label}</span> : null}
+                    {r.label ? <span className="text-muted-foreground"> — {r.label}</span> : null}
                   </span>
-                  <span className="shrink-0 text-xs text-zinc-500">
+                  <span className="shrink-0 text-xs text-muted-foreground">
                     {r.occurredOn.toLocaleDateString("es-DO")}
                   </span>
                 </li>
@@ -97,7 +94,7 @@ export default async function ClientDetailPage({
           )}
         </Card>
         <Card>
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Registrar ingreso</h3>
+          <h3 className="text-sm font-semibold text-foreground">Registrar ingreso</h3>
           <div className="mt-2">
             <RevenueForm clients={clientsMini} defaultClientId={id} />
           </div>
@@ -105,8 +102,8 @@ export default async function ClientDetailPage({
       </div>
 
       <Card>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Documentos</h3>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <h3 className="text-sm font-semibold text-foreground">Documentos</h3>
+        <p className="text-sm text-muted-foreground">
           Registre licencia, contrato u otro. Opcional: genere y descargue un borrador en <code className="text-xs">.txt</code>.
         </p>
         {client.documents.length > 0 ? (
@@ -114,42 +111,42 @@ export default async function ClientDetailPage({
             {client.documents.map((d) => (
               <li
                 key={d.id}
-                className="flex items-start justify-between gap-2 border-b border-zinc-100 py-1.5 last:border-0 dark:border-zinc-800"
+                className="flex items-start justify-between gap-2 border-b border-border py-1.5 last:border-0"
               >
                 <span>
-                  {documentKindLabel[d.kind]} — <span className="font-medium text-zinc-800 dark:text-zinc-200">{d.title}</span>
-                  {d.fileKey ? <span className="block text-xs text-zinc-500">Ref: {d.fileKey}</span> : null}
+                  {documentKindLabel[d.kind]} — <span className="font-medium text-foreground">{d.title}</span>
+                  {d.fileKey ? <span className="block text-xs text-muted-foreground">Ref: {d.fileKey}</span> : null}
                 </span>
-                <span className="shrink-0 text-xs text-zinc-500">{d.createdAt.toLocaleDateString("es-DO")}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{d.createdAt.toLocaleDateString("es-DO")}</span>
               </li>
             ))}
           </ul>
         ) : null}
-        <div className="mt-4 border-t border-dashed border-zinc-200 pt-4 dark:border-zinc-700">
+        <div className="mt-4 border-t border-dashed border-border pt-4">
           <DocumentForm clients={clientsMini} defaultClientId={id} />
         </div>
       </Card>
 
       <Card>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Bitácora asociada</h3>
+        <h3 className="text-sm font-semibold text-foreground">Bitácora asociada</h3>
         {client.activities.length === 0 ? (
-          <p className="mt-2 text-sm text-zinc-500">Sin actividad todavía.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Sin actividad todavía.</p>
         ) : (
           <ul className="mt-2 max-h-64 space-y-1 overflow-auto text-sm">
             {client.activities.map((a) => (
               <li
                 key={a.id}
-                className="rounded border border-zinc-100 p-2 dark:border-zinc-800"
+                className="rounded-lg border border-border p-2"
               >
-                <p className="font-medium text-zinc-800 dark:text-zinc-200">{a.action}</p>
-                {a.detail ? <p className="text-zinc-600 dark:text-zinc-400">{a.detail}</p> : null}
-                <p className="text-xs text-zinc-500">{new Date(a.createdAt).toLocaleString("es-DO")}</p>
+                <p className="font-medium text-foreground">{a.action}</p>
+                {a.detail ? <p className="text-muted-foreground">{a.detail}</p> : null}
+                <p className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString("es-DO")}</p>
               </li>
             ))}
           </ul>
         )}
-        <div className="mt-4 border-t border-dashed border-zinc-200 pt-4 dark:border-zinc-700">
-          <h4 className="text-xs font-medium uppercase text-zinc-500">Añadir evento a este cliente</h4>
+        <div className="mt-4 border-t border-dashed border-border pt-4">
+          <h4 className="text-xs font-medium uppercase text-muted-foreground">Añadir evento a este cliente</h4>
           <div className="mt-2">
             <ActivityForm clients={clientsMini} defaultClientId={id} />
           </div>
@@ -157,15 +154,15 @@ export default async function ClientDetailPage({
       </Card>
 
       <Card>
-        <h3 className="text-sm font-semibold text-rose-800 dark:text-rose-200">Zona de peligro</h3>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <h3 className="text-sm font-semibold text-destructive">Zona de peligro</h3>
+        <p className="text-sm text-muted-foreground">
           Elimine el registro y todo lo vinculado a este <code className="font-mono">clientId</code> en pos-ops.
         </p>
         <div className="mt-3 max-w-sm">
           <DeleteClientForm clientId={id} />
         </div>
       </Card>
-      <Muted>Envíos a este contacto: consulte y redacte en <Link className="underline" href="/comms">Comunicados</Link>.</Muted>
+      <Muted>Envíos a este contacto: consulte y redacte en <Link className="text-primary underline-offset-2 hover:underline" href="/comms">Comunicados</Link>.</Muted>
     </div>
   );
 }
