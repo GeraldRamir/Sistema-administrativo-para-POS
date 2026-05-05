@@ -22,19 +22,30 @@ const PASTE_HELP =
   "Al copiar desde Word o Excel, use «Pegar y limpiar» o pegue con Ctrl+Mayús+V (pegar sin formato) en el recuadro, para evitar guiones invisibles y símbolos raros en el PDF.";
 
 const ZOD_FIELD_LABELS: Record<string, string> = {
-  empresaDesarrolladora: "Empresa del proveedor (PRESTADOR)",
+  empresaDesarrolladora: "Empresa del proveedor",
   representanteDesarrollador: "Representante del proveedor",
   clienteEmpresa: "Empresa del cliente (EL CLIENTE)",
   nombreCliente: "Nombre del representante del cliente",
   proyecto: "Nombre del proyecto o sistema",
   modulos: "Módulos y alcance",
+  nombreServicio: "Nombre del servicio o producto (SaaS)",
+  descripcionAlcance: "Alcance, planes, límites, exclusiones",
+  montoRecurrente: "Tarifa o monto del período",
+  periodoFacturacion: "Periodicidad de facturación",
+  tarifaUnica: "Implementación, activación o tarifa única (opcional)",
+  facturacionYrenovacion: "Facturación, vencimientos, renovación",
+  compromisoMinimoMeses: "Compromiso mínimo (meses)",
+  fechaInicio: "Fecha de inicio",
+  fechaEntrega: "Fecha de entrega estimada",
+  fechaFinPlazo: "Fecha de cierre/renovación (referencia)",
+  integracionAccesos: "Requisitos e integraciones",
+  disponibilidad: "Disponibilidad, SLA, soporte (informativo)",
+  licenciaUso: "Licencia de uso y titularidad",
   monedaReferencia: "Moneda de referencia",
   montoTotal: "Monto total",
   inicial: "Pago inicial",
   cuotas: "Cuotas / restante a pagar",
   diasHabiles: "Días hábiles de desarrollo",
-  fechaInicio: "Fecha de inicio",
-  fechaEntrega: "Fecha de entrega estimada",
   tecnologias: "Tecnologías",
   mesesSoporte: "Meses de soporte",
   quienPoseeCodigo: "Titularidad del código",
@@ -43,7 +54,7 @@ const ZOD_FIELD_LABELS: Record<string, string> = {
   fechaHoy: "Fecha de firma del documento",
 };
 
-const STEPS = [
+const DEV_STEPS = [
   { id: 0, title: "Partes" },
   { id: 1, title: "Proyecto y alcance" },
   { id: 2, title: "Precio y moneda" },
@@ -53,7 +64,15 @@ const STEPS = [
   { id: 6, title: "Firmas (comercial — PDF)" },
 ] as const;
 
-const lastStep = STEPS.length - 1;
+const SAAS_STEPS = [
+  { id: 0, title: "Partes" },
+  { id: 1, title: "Servicio y alcance" },
+  { id: 2, title: "Precio, periodicidad, facturación" },
+  { id: 3, title: "Vigencia y plazos" },
+  { id: 4, title: "Licencia, datos, riesgos" },
+  { id: 5, title: "Fecha de firma" },
+  { id: 6, title: "Firmas (comercial — PDF)" },
+] as const;
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -67,25 +86,34 @@ const staticDefaults = (): Record<string, string> => {
     quienPoseeCodigo: "EL CLIENTE, una vez completado el pago total acordado",
     jurisdiccion: "República Dominicana",
     monedaReferencia: "DOP",
+    compromisoMinimoMeses: "12",
+    periodoFacturacion: "MENSUAL",
+    licenciaUso:
+      "Licencia de uso no exclusiva e intransmisible del Servicio, revocable por incumplimiento esencial, según cláusulas y anexos.",
+    facturacionYrenovacion:
+      "Facturación por período; vencimientos y medios según factura; renovación tácita salvo notificación oportuna o lo acordado por escrito.",
   };
 };
 
-const readDraft = (): { values: Record<string, string>; numFirmas: 1 | 2 | 3 } => {
+const isContractKind = (k: string | undefined): k is ContractTemplateId => k === "SAAS" || k === "DESARROLLO_SOFTWARE";
+
+const readDraft = (): { values: Record<string, string>; numFirmas: 1 | 2 | 3; kind: ContractTemplateId } => {
   if (typeof window === "undefined") {
-    return { values: staticDefaults(), numFirmas: 3 };
+    return { values: staticDefaults(), numFirmas: 3, kind: "DESARROLLO_SOFTWARE" };
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return { values: staticDefaults(), numFirmas: 3 };
+      return { values: staticDefaults(), numFirmas: 3, kind: "DESARROLLO_SOFTWARE" };
     }
     const p = JSON.parse(raw) as Record<string, string>;
     const n = parseInt(p.numFirmas ?? "3", 10);
     const numFirmas: 1 | 2 | 3 = n === 1 || n === 2 ? n : 3;
-    const { numFirmas: _nf, ...rest } = p;
-    return { values: { ...staticDefaults(), ...rest }, numFirmas };
+    const { numFirmas: _nf, kind: kRaw, ...rest } = p;
+    const kind: ContractTemplateId = isContractKind(kRaw) ? kRaw : "DESARROLLO_SOFTWARE";
+    return { values: { ...staticDefaults(), ...rest }, numFirmas, kind };
   } catch {
-    return { values: staticDefaults(), numFirmas: 3 };
+    return { values: staticDefaults(), numFirmas: 3, kind: "DESARROLLO_SOFTWARE" };
   }
 };
 
@@ -103,6 +131,14 @@ const computeLens = (d: Record<string, string>) => ({
   penalidadAtrasoPago: (d.penalidadAtrasoPago ?? "").length,
   quienPoseeCodigo: (d.quienPoseeCodigo ?? "").length,
   jurisdiccion: (d.jurisdiccion ?? "").length,
+  nombreServicio: (d.nombreServicio ?? "").length,
+  descripcionAlcance: (d.descripcionAlcance ?? "").length,
+  montoRecurrente: (d.montoRecurrente ?? "").length,
+  facturacionYrenovacion: (d.facturacionYrenovacion ?? "").length,
+  integracionAccesos: (d.integracionAccesos ?? "").length,
+  disponibilidad: (d.disponibilidad ?? "").length,
+  licenciaUso: (d.licenciaUso ?? "").length,
+  tarifaUnica: (d.tarifaUnica ?? "").length,
 });
 
 type CharLens = ReturnType<typeof computeLens>;
@@ -139,18 +175,19 @@ export function ContractGeneratorForm() {
   const sig2 = useRef<SignaturePadHandle>(null);
   const sig3 = useRef<SignaturePadHandle>(null);
 
-  const availableTypes = CONTRACT_CATALOG.filter((c) => c.available);
-  const singleTemplateMode = availableTypes.length <= 1;
   const selected = CONTRACT_CATALOG.find((c) => c.id === kind);
   const isAvailable = selected?.available === true;
   const fieldErrors = state?.ok === false ? state.fieldErrors : undefined;
   const fe = (k: string) => fieldErrors?.[k];
   const stepWrap = (i: number) => (i === activeStep ? "space-y-4" : "hidden");
+  const steps = kind === "SAAS" ? SAAS_STEPS : DEV_STEPS;
+  const lastStep = steps.length - 1;
 
   useEffect(() => {
-    const { values, numFirmas: n } = readDraft();
+    const { values, numFirmas: n, kind: k } = readDraft();
     setDefaults(values);
     setNumFirmas(n);
+    setKind(k);
     setLens(computeLens(values));
     setReady(true);
   }, []);
@@ -186,7 +223,7 @@ export function ContractGeneratorForm() {
       t = window.setTimeout(() => {
         try {
           const fd = new FormData(el);
-          const o: Record<string, string> = { numFirmas: String(numFirmas) };
+          const o: Record<string, string> = { numFirmas: String(numFirmas), kind: String(kind) };
           fd.forEach((v, k) => {
             if (typeof v !== "string") {
               return;
@@ -209,7 +246,7 @@ export function ContractGeneratorForm() {
       el.removeEventListener("change", onSave);
       window.clearTimeout(t);
     };
-  }, [ready, numFirmas, formRemountKey]);
+  }, [ready, numFirmas, formRemountKey, kind]);
 
   const handleUpdateLen = (name: keyof CharLens) => (v: string) => {
     setLens((prev) => {
@@ -244,6 +281,8 @@ export function ContractGeneratorForm() {
     const v = staticDefaults();
     setDefaults(v);
     setNumFirmas(3);
+    setKind("DESARROLLO_SOFTWARE");
+    setActiveStep(0);
     setLens(computeLens(v));
     setFormRemountKey((k) => k + 1);
   };
@@ -251,13 +290,23 @@ export function ContractGeneratorForm() {
   const onSubmitForm = (e: FormEvent<HTMLFormElement>) => {
     const form = e.currentTarget;
     const fIn = form.fechaInicio;
-    const fEn = form.fechaEntrega;
     const a = fIn && "value" in fIn ? String(fIn.value).trim() : "";
-    const b = fEn && "value" in fEn ? String(fEn.value).trim() : "";
-    if (b && a && b < a) {
-      e.preventDefault();
-      setClientDateError("La fecha de entrega no puede ser anterior a la de inicio.");
-      return;
+    if (kind === "SAAS") {
+      const fP = form.fechaFinPlazo;
+      const b = fP && "value" in fP ? String(fP.value).trim() : "";
+      if (b && a && b < a) {
+        e.preventDefault();
+        setClientDateError("La fecha de cierre/renovación no puede ser anterior a la de inicio de vigencia.");
+        return;
+      }
+    } else {
+      const fEn = form.fechaEntrega;
+      const b = fEn && "value" in fEn ? String(fEn.value).trim() : "";
+      if (b && a && b < a) {
+        e.preventDefault();
+        setClientDateError("La fecha de entrega no puede ser anterior a la de inicio.");
+        return;
+      }
     }
     setClientDateError(null);
     e.preventDefault();
@@ -294,25 +343,23 @@ export function ContractGeneratorForm() {
     >
       <input type="hidden" name="kind" value={kind} />
 
-      {!singleTemplateMode ? (
-        <div className="rounded-xl border border-border bg-muted/30 p-4">
-          <Label htmlFor="contract-kind">Tipo de contrato</Label>
-          <select
-            id="contract-kind"
-            className={selectClass + " mt-1.5 max-w-lg"}
-            value={kind}
-            onChange={(e) => setKind(e.target.value as ContractTemplateId)}
-          >
-            {CONTRACT_CATALOG.map((c) => (
-              <option key={c.id} value={c.id} disabled={!c.available}>
-                {c.label}
-                {!c.available ? " (próximamente)" : ""}
-              </option>
-            ))}
-          </select>
-          {selected ? <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p> : null}
-        </div>
-      ) : null}
+      <div className="rounded-xl border border-border bg-muted/30 p-4">
+        <Label htmlFor="contract-kind">Tipo de contrato</Label>
+        <select
+          id="contract-kind"
+          className={selectClass + " mt-1.5 max-w-lg"}
+          value={kind}
+          onChange={(e) => setKind(e.target.value as ContractTemplateId)}
+        >
+          {CONTRACT_CATALOG.map((c) => (
+            <option key={c.id} value={c.id} disabled={!c.available}>
+              {c.label}
+              {!c.available ? " (próximamente)" : ""}
+            </option>
+          ))}
+        </select>
+        {selected ? <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p> : null}
+      </div>
 
       {state?.ok === false ? (
         <FormAlert
@@ -327,7 +374,7 @@ export function ContractGeneratorForm() {
 
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
         <p className="text-muted-foreground" aria-hidden="true">
-          Paso {activeStep + 1} de {STEPS.length}: <strong className="text-foreground">{STEPS[activeStep]!.title}</strong>
+          Paso {activeStep + 1} de {steps.length}: <strong className="text-foreground">{steps[activeStep]!.title}</strong>
         </p>
         <div className="flex flex-wrap gap-2">
           <GhostButton
@@ -347,7 +394,7 @@ export function ContractGeneratorForm() {
       ) : (
         <>
           <ol className="flex list-none flex-wrap gap-1 text-xs" aria-label="Progreso del asistente">
-            {STEPS.map((s, i) => (
+            {steps.map((s, i) => (
               <li key={s.id}>
                 <button
                   type="button"
@@ -370,11 +417,15 @@ export function ContractGeneratorForm() {
 
           <section className={stepWrap(0)} aria-labelledby="step-partes">
             <h3 id="step-partes" className="text-sm font-semibold text-foreground">
-              {STEPS[0]!.title}
+              {steps[0]!.title}
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="empresaDesarrolladora">Empresa o razón social del proveedor (EL PRESTADOR) *</Label>
+                <Label htmlFor="empresaDesarrolladora">
+                  {kind === "SAAS"
+                    ? "Empresa o razón social del proveedor (EL PROVEEDOR) *"
+                    : "Empresa o razón social del proveedor (EL PRESTADOR) *"}
+                </Label>
                 {fe("empresaDesarrolladora") ? (
                   <p id="empresaDesarrolladora-err" className="text-destructive text-xs" role="alert">
                     {fe("empresaDesarrolladora")}
@@ -401,7 +452,9 @@ export function ContractGeneratorForm() {
                 </p>
               </div>
               <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="representanteDesarrollador">Representante de EL PRESTADOR *</Label>
+                <Label htmlFor="representanteDesarrollador">
+                  {kind === "SAAS" ? "Representante de EL PROVEEDOR *" : "Representante de EL PRESTADOR *"}
+                </Label>
                 {fe("representanteDesarrollador") ? (
                   <p id="representanteDesarrollador-err" className="text-destructive text-xs" role="alert">
                     {fe("representanteDesarrollador")}
@@ -488,88 +541,167 @@ export function ContractGeneratorForm() {
 
           <section className={stepWrap(1)} aria-labelledby="step-proyecto">
             <h3 id="step-proyecto" className="text-sm font-semibold text-foreground">
-              {STEPS[1]!.title}
+              {steps[1]!.title}
             </h3>
             <p className="text-sm text-muted-foreground" id="paste-help-global">
               {PASTE_HELP}
             </p>
-            <div className={labelBoxClass}>
-              <Label htmlFor="proyecto">Nombre del sistema / proyecto *</Label>
-              {fe("proyecto") ? (
-                <p id="proyecto-err" className="text-destructive text-xs" role="alert">
-                  {fe("proyecto")}
-                </p>
-              ) : null}
-              <input
-                className={inputClass}
-                id="proyecto"
-                name="proyecto"
-                required
-                maxLength={500}
-                defaultValue={dV("proyecto")}
-                placeholder="Ej. POS y stock multi-sucursal, panel admin y caja (detalle mínimo para identificar el acto)"
-                aria-describedby={["paste-help-global", "proyecto-count", fe("proyecto") && "proyecto-err"]
-                  .filter(Boolean)
-                  .join(" ")}
-                onInput={(e) => handleUpdateLen("proyecto")((e.target as HTMLInputElement).value)}
-                aria-invalid={fe("proyecto") ? true : undefined}
-              />
-              <p className="text-right text-xs text-muted-foreground" id="proyecto-count" aria-live="polite">
-                {lens.proyecto} / 500
-              </p>
-            </div>
-            <div className={labelBoxClass}>
-              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                <Label htmlFor="modulos">Módulos y funciones / alcance *</Label>
-              </div>
-              {fe("modulos") ? (
-                <p id="modulos-err" className="text-destructive text-xs" role="alert">
-                  {fe("modulos")}
-                </p>
-              ) : null}
-              <ContractRichTextField
-                key={`rtf-modulos-${formRemountKey}`}
-                remountKey={formRemountKey}
-                name="modulos"
-                id="modulos"
-                defaultValue={dV("modulos")}
-                maxLength={20000}
-                requiredField
-                placeholder="Ej. inventario, ventas, reportes, roles (admin, cajero)… (use listas del editor, no Word pegado sin limpiar.)"
-                minHeightClass="min-h-[120px]"
-                aria-describedby={["paste-help-global", "modulos-count", fe("modulos") && "modulos-err"].filter(Boolean).join(" ")}
-                aria-invalid={fe("modulos") ? true : undefined}
-                onPlainLengthChange={setFieldLen("modulos")}
-              />
-              <p className="text-right text-xs text-muted-foreground" id="modulos-count" aria-live="polite">
-                {lens.modulos} / 20000
-              </p>
-            </div>
-            <div className={labelBoxClass}>
-              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                <Label htmlFor="tecnologias">Tecnologías (stack, frameworks, requisitos técnicos)</Label>
-              </div>
-              <ContractRichTextField
-                key={`rtf-tecnologias-${formRemountKey}`}
-                remountKey={formRemountKey}
-                name="tecnologias"
-                id="tecnologias"
-                defaultValue={dV("tecnologias")}
-                maxLength={5000}
-                placeholder="Next.js, NestJS, PostgreSQL, hosting, dominio, SSL, respaldos…"
-                minHeightClass="min-h-[80px]"
-                aria-describedby="paste-help-global tecnologias-count"
-                onPlainLengthChange={setFieldLen("tecnologias")}
-              />
-              <p className="text-right text-xs text-muted-foreground" id="tecnologias-count" aria-live="polite">
-                {lens.tecnologias} / 5000
-              </p>
-            </div>
+            {kind === "DESARROLLO_SOFTWARE" ? (
+              <>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="proyecto">Nombre del sistema / proyecto *</Label>
+                  {fe("proyecto") ? (
+                    <p id="proyecto-err" className="text-destructive text-xs" role="alert">
+                      {fe("proyecto")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="proyecto"
+                    name="proyecto"
+                    required
+                    maxLength={500}
+                    defaultValue={dV("proyecto")}
+                    placeholder="Ej. POS y stock multi-sucursal, panel admin y caja (detalle mínimo para identificar el acto)"
+                    aria-describedby={["paste-help-global", "proyecto-count", fe("proyecto") && "proyecto-err"]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onInput={(e) => handleUpdateLen("proyecto")((e.target as HTMLInputElement).value)}
+                    aria-invalid={fe("proyecto") ? true : undefined}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="proyecto-count" aria-live="polite">
+                    {lens.proyecto} / 500
+                  </p>
+                </div>
+                <div className={labelBoxClass}>
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor="modulos">Módulos y funciones / alcance *</Label>
+                  </div>
+                  {fe("modulos") ? (
+                    <p id="modulos-err" className="text-destructive text-xs" role="alert">
+                      {fe("modulos")}
+                    </p>
+                  ) : null}
+                  <ContractRichTextField
+                    key={`rtf-modulos-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="modulos"
+                    id="modulos"
+                    defaultValue={dV("modulos")}
+                    maxLength={20000}
+                    requiredField
+                    placeholder="Ej. inventario, ventas, reportes, roles (admin, cajero)… (use listas del editor, no Word pegado sin limpiar.)"
+                    minHeightClass="min-h-[120px]"
+                    aria-describedby={["paste-help-global", "modulos-count", fe("modulos") && "modulos-err"]
+                      .filter(Boolean)
+                      .join(" ")}
+                    aria-invalid={fe("modulos") ? true : undefined}
+                    onPlainLengthChange={setFieldLen("modulos")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="modulos-count" aria-live="polite">
+                    {lens.modulos} / 20000
+                  </p>
+                </div>
+                <div className={labelBoxClass}>
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor="tecnologias">Tecnologías (stack, frameworks, requisitos técnicos)</Label>
+                  </div>
+                  <ContractRichTextField
+                    key={`rtf-tecnologias-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="tecnologias"
+                    id="tecnologias"
+                    defaultValue={dV("tecnologias")}
+                    maxLength={5000}
+                    placeholder="Next.js, NestJS, PostgreSQL, hosting, dominio, SSL, respaldos…"
+                    minHeightClass="min-h-[80px]"
+                    aria-describedby="paste-help-global tecnologias-count"
+                    onPlainLengthChange={setFieldLen("tecnologias")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="tecnologias-count" aria-live="polite">
+                    {lens.tecnologias} / 5000
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="nombreServicio">Nombre comercial del servicio o producto (SaaS) *</Label>
+                  {fe("nombreServicio") ? (
+                    <p id="nombreServicio-err" className="text-destructive text-xs" role="alert">
+                      {fe("nombreServicio")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="nombreServicio"
+                    name="nombreServicio"
+                    required
+                    maxLength={500}
+                    defaultValue={dV("nombreServicio")}
+                    placeholder="Ej. PosCloud — plan Estándar y módulo facturación"
+                    aria-describedby={["paste-help-global", "nombreServicio-c", fe("nombreServicio") && "nombreServicio-err"]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onInput={(e) => handleUpdateLen("nombreServicio")((e.target as HTMLInputElement).value)}
+                    aria-invalid={fe("nombreServicio") ? true : undefined}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="nombreServicio-c" aria-live="polite">
+                    {lens.nombreServicio} / 500
+                  </p>
+                </div>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="descripcionAlcance">Alcance, planes, límites, exclusiones y funcionalidades *</Label>
+                  {fe("descripcionAlcance") ? (
+                    <p id="descripcionAlcance-err" className="text-destructive text-xs" role="alert">
+                      {fe("descripcionAlcance")}
+                    </p>
+                  ) : null}
+                  <ContractRichTextField
+                    key={`rtf-saas-alcance-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="descripcionAlcance"
+                    id="descripcionAlcance"
+                    defaultValue={dV("descripcionAlcance")}
+                    maxLength={20000}
+                    requiredField
+                    placeholder="Usuarios, almacenamiento, módulos, entornos (producción/pruebas), exclusión de personalización a medida, etc."
+                    minHeightClass="min-h-[120px]"
+                    aria-describedby={["paste-help-global", "descripcionAlcance-c", fe("descripcionAlcance") && "descripcionAlcance-err"]
+                      .filter(Boolean)
+                      .join(" ")}
+                    aria-invalid={fe("descripcionAlcance") ? true : undefined}
+                    onPlainLengthChange={setFieldLen("descripcionAlcance")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="descripcionAlcance-c" aria-live="polite">
+                    {lens.descripcionAlcance} / 20000
+                  </p>
+                </div>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="integracionAccesos">Requisitos de acceso, SSO, integraciones, API (opcional)</Label>
+                  <ContractRichTextField
+                    key={`rtf-saas-integ-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="integracionAccesos"
+                    id="integracionAccesos"
+                    defaultValue={dV("integracionAccesos")}
+                    maxLength={5000}
+                    placeholder="VPN, IP permitidas, conector contable, webhooks, etc."
+                    minHeightClass="min-h-[80px]"
+                    aria-describedby="paste-help-global integracionAccesos-c"
+                    onPlainLengthChange={setFieldLen("integracionAccesos")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="integracionAccesos-c" aria-live="polite">
+                    {lens.integracionAccesos} / 5000
+                  </p>
+                </div>
+              </>
+            )}
           </section>
 
           <section className={stepWrap(2)} aria-labelledby="step-precio">
             <h3 id="step-precio" className="text-sm font-semibold text-foreground">
-              {STEPS[2]!.title}
+              {steps[2]!.title}
             </h3>
             <p className="text-sm text-muted-foreground" id="moneda-desc">
               Elija con qué moneda deben leerse los importes de este acto. Si escribe cifras mezcladas, use «En el texto
@@ -595,246 +727,506 @@ export function ContractGeneratorForm() {
                 <option value="LIBRE">En el texto (libre — cifra explícita en montos)</option>
               </select>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="montoTotal">Monto total *</Label>
-                {fe("montoTotal") ? (
-                  <p id="montoTotal-err" className="text-destructive text-xs" role="alert">
-                    {fe("montoTotal")}
+            {kind === "DESARROLLO_SOFTWARE" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="montoTotal">Monto total *</Label>
+                  {fe("montoTotal") ? (
+                    <p id="montoTotal-err" className="text-destructive text-xs" role="alert">
+                      {fe("montoTotal")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="montoTotal"
+                    name="montoTotal"
+                    required
+                    maxLength={200}
+                    defaultValue={dV("montoTotal")}
+                    placeholder="Ej. RD$ 150,000.00; USD 5,000.00; o cifra acorde a su elección de moneda"
+                    aria-describedby={fe("montoTotal") ? "montoTotal-err" : undefined}
+                    onInput={(e) => handleUpdateLen("montoTotal")((e.target as HTMLInputElement).value)}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                    {lens.montoTotal} / 200
                   </p>
-                ) : null}
-                <input
-                  className={inputClass}
-                  id="montoTotal"
-                  name="montoTotal"
-                  required
-                  maxLength={200}
-                  defaultValue={dV("montoTotal")}
-                  placeholder="Ej. RD$ 150,000.00; USD 5,000.00; o cifra acorde a su elección de moneda"
-                  aria-describedby={fe("montoTotal") ? "montoTotal-err" : undefined}
-                  onInput={(e) => handleUpdateLen("montoTotal")((e.target as HTMLInputElement).value)}
-                />
-                <p className="text-right text-xs text-muted-foreground" aria-live="polite">
-                  {lens.montoTotal} / 200
-                </p>
-              </div>
-              <div className={labelBoxClass}>
-                <Label htmlFor="inicial">Pago inicial *</Label>
-                {fe("inicial") ? (
-                  <p id="inicial-err" className="text-destructive text-xs" role="alert">
-                    {fe("inicial")}
-                  </p>
-                ) : null}
-                <input
-                  className={inputClass}
-                  id="inicial"
-                  name="inicial"
-                  required
-                  maxLength={200}
-                  defaultValue={dV("inicial")}
-                  placeholder="Ej. 50% al aprobar, o RD$ 30,000.00 a la firma"
-                  aria-describedby={fe("inicial") ? "inicial-err" : undefined}
-                  onInput={(e) => handleUpdateLen("inicial")((e.target as HTMLInputElement).value)}
-                />
-                <p className="text-right text-xs text-muted-foreground" aria-live="polite">
-                  {lens.inicial} / 200
-                </p>
-              </div>
-              <div className={labelBoxClass + " sm:col-span-2"}>
-                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                  <Label htmlFor="cuotas">Restante / cuotas *</Label>
                 </div>
-                {fe("cuotas") ? (
-                  <p id="cuotas-err" className="text-destructive text-xs" role="alert">
-                    {fe("cuotas")}
+                <div className={labelBoxClass}>
+                  <Label htmlFor="inicial">Pago inicial *</Label>
+                  {fe("inicial") ? (
+                    <p id="inicial-err" className="text-destructive text-xs" role="alert">
+                      {fe("inicial")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="inicial"
+                    name="inicial"
+                    required
+                    maxLength={200}
+                    defaultValue={dV("inicial")}
+                    placeholder="Ej. 50% al aprobar, o RD$ 30,000.00 a la firma"
+                    aria-describedby={fe("inicial") ? "inicial-err" : undefined}
+                    onInput={(e) => handleUpdateLen("inicial")((e.target as HTMLInputElement).value)}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                    {lens.inicial} / 200
                   </p>
-                ) : null}
-                <ContractRichTextField
-                  key={`rtf-cuotas-${formRemountKey}`}
-                  remountKey={formRemountKey}
-                  name="cuotas"
-                  id="cuotas"
-                  defaultValue={dV("cuotas")}
-                  maxLength={2000}
-                  requiredField
-                  placeholder="Ej. 2 cuotas de RD$ 50,000.00 a los 30 y 60 días…"
-                  minHeightClass="min-h-[88px]"
-                  aria-describedby={["cuotas-len", fe("cuotas") && "cuotas-err"].filter(Boolean).join(" ")}
-                  aria-invalid={fe("cuotas") ? true : undefined}
-                  onPlainLengthChange={setFieldLen("cuotas")}
-                />
-                <p className="text-right text-xs text-muted-foreground" id="cuotas-len" aria-live="polite">
-                  {lens.cuotas} / 2000
-                </p>
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor="cuotas">Restante / cuotas *</Label>
+                  </div>
+                  {fe("cuotas") ? (
+                    <p id="cuotas-err" className="text-destructive text-xs" role="alert">
+                      {fe("cuotas")}
+                    </p>
+                  ) : null}
+                  <ContractRichTextField
+                    key={`rtf-cuotas-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="cuotas"
+                    id="cuotas"
+                    defaultValue={dV("cuotas")}
+                    maxLength={2000}
+                    requiredField
+                    placeholder="Ej. 2 cuotas de RD$ 50,000.00 a los 30 y 60 días…"
+                    minHeightClass="min-h-[88px]"
+                    aria-describedby={["cuotas-len", fe("cuotas") && "cuotas-err"].filter(Boolean).join(" ")}
+                    aria-invalid={fe("cuotas") ? true : undefined}
+                    onPlainLengthChange={setFieldLen("cuotas")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="cuotas-len" aria-live="polite">
+                    {lens.cuotas} / 2000
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="montoRecurrente">Tarifa o monto del período (recurrente) *</Label>
+                  {fe("montoRecurrente") ? (
+                    <p id="montoRecurrente-err" className="text-destructive text-xs" role="alert">
+                      {fe("montoRecurrente")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="montoRecurrente"
+                    name="montoRecurrente"
+                    required
+                    maxLength={200}
+                    defaultValue={dV("montoRecurrente")}
+                    placeholder="Ej. RD$ 4,500.00 / mes; USD 99.00 / mes"
+                    onInput={(e) => handleUpdateLen("montoRecurrente")((e.target as HTMLInputElement).value)}
+                    aria-describedby={fe("montoRecurrente") ? "montoRecurrente-err" : undefined}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                    {lens.montoRecurrente} / 200
+                  </p>
+                </div>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="periodoFacturacion">Periodicidad de facturación *</Label>
+                  {fe("periodoFacturacion") ? (
+                    <p className="text-destructive text-xs" id="per-err" role="alert">
+                      {fe("periodoFacturacion")}
+                    </p>
+                  ) : null}
+                  <select
+                    id="periodoFacturacion"
+                    name="periodoFacturacion"
+                    className={selectClass + " max-w-sm"}
+                    required
+                    defaultValue={dV("periodoFacturacion") || "MENSUAL"}
+                    aria-describedby={fe("periodoFacturacion") ? "per-err" : undefined}
+                  >
+                    <option value="MENSUAL">Mensual</option>
+                    <option value="ANUAL">Anual</option>
+                    <option value="TRIMESTRAL">Trimestral</option>
+                    <option value="SEMESTRAL">Semestral</option>
+                    <option value="OTRO">Otro (detallar en facturación y renovación)</option>
+                  </select>
+                </div>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="tarifaUnica">Implementación, activación o tarifa única (opcional)</Label>
+                  {fe("tarifaUnica") ? (
+                    <p id="tarifaUnica-err" className="text-destructive text-xs" role="alert">
+                      {fe("tarifaUnica")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="tarifaUnica"
+                    name="tarifaUnica"
+                    maxLength={200}
+                    defaultValue={dV("tarifaUnica")}
+                    placeholder="Ej. RD$ 10,000.00 única, o 0"
+                    onInput={(e) => handleUpdateLen("tarifaUnica")((e.target as HTMLInputElement).value)}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                    {lens.tarifaUnica} / 200
+                  </p>
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  {fe("facturacionYrenovacion") ? (
+                    <p id="fact-err" className="text-destructive text-xs" role="alert">
+                      {fe("facturacionYrenovacion")}
+                    </p>
+                  ) : null}
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor="facturacionYrenovacion">Vencimientos, renovación tácita, recargos y medios *</Label>
+                  </div>
+                  <ContractRichTextField
+                    key={`rtf-saas-fact-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="facturacionYrenovacion"
+                    id="facturacionYrenovacion"
+                    defaultValue={dV("facturacionYrenovacion")}
+                    maxLength={2000}
+                    requiredField
+                    placeholder="Día de cargo, días de gracia, IVA, suspensión por mora, etc."
+                    minHeightClass="min-h-[88px]"
+                    aria-describedby={["fact-len", fe("facturacionYrenovacion") && "fact-err"].filter(Boolean).join(" ")}
+                    onPlainLengthChange={setFieldLen("facturacionYrenovacion")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="fact-len" aria-live="polite">
+                    {lens.facturacionYrenovacion} / 2000
+                  </p>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className={stepWrap(3)} aria-labelledby="step-plazos">
             <h3 id="step-plazos" className="text-sm font-semibold text-foreground">
-              {STEPS[3]!.title}
+              {steps[3]!.title}
             </h3>
             {clientDateError ? (
               <p className="text-destructive text-sm" role="alert">
                 {clientDateError}
               </p>
             ) : null}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className={labelBoxClass}>
-                <Label htmlFor="diasHabiles">Días hábiles de desarrollo (estimado) *</Label>
-                {fe("diasHabiles") ? (
-                  <p className="text-destructive text-xs" id="dias-err" role="alert">
-                    {fe("diasHabiles")}
-                  </p>
-                ) : null}
-                <input
-                  className={inputClass}
-                  id="diasHabiles"
-                  name="diasHabiles"
-                  type="number"
-                  min={1}
-                  max={3650}
-                  required
-                  defaultValue={dV("diasHabiles") || "90"}
-                  aria-describedby={fe("diasHabiles") ? "dias-err" : undefined}
-                  aria-invalid={fe("diasHabiles") ? true : undefined}
-                />
+            {kind === "DESARROLLO_SOFTWARE" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={labelBoxClass}>
+                  <Label htmlFor="diasHabiles">Días hábiles de desarrollo (estimado) *</Label>
+                  {fe("diasHabiles") ? (
+                    <p className="text-destructive text-xs" id="dias-err" role="alert">
+                      {fe("diasHabiles")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="diasHabiles"
+                    name="diasHabiles"
+                    type="number"
+                    min={1}
+                    max={3650}
+                    required
+                    defaultValue={dV("diasHabiles") || "90"}
+                    aria-describedby={fe("diasHabiles") ? "dias-err" : undefined}
+                    aria-invalid={fe("diasHabiles") ? true : undefined}
+                  />
+                </div>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="fechaInicio">Fecha de inicio (referencia) *</Label>
+                  {fe("fechaInicio") ? (
+                    <p className="text-destructive text-xs" id="fini-err" role="alert">
+                      {fe("fechaInicio")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="fechaInicio"
+                    name="fechaInicio"
+                    type="date"
+                    required
+                    defaultValue={dV("fechaInicio") || todayStr()}
+                    onChange={() => setClientDateError(null)}
+                    aria-describedby={fe("fechaInicio") ? "fini-err" : undefined}
+                  />
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="fechaEntrega">Fecha de entrega estimada (opcional; si queda en blanco se indica en texto genérico)</Label>
+                  {fe("fechaEntrega") ? (
+                    <p className="text-destructive text-xs" id="fent-err" role="alert">
+                      {fe("fechaEntrega")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="fechaEntrega"
+                    name="fechaEntrega"
+                    type="date"
+                    defaultValue={dV("fechaEntrega")}
+                    onChange={() => setClientDateError(null)}
+                    aria-describedby={fe("fechaEntrega") ? "fent-err" : undefined}
+                  />
+                </div>
               </div>
-              <div className={labelBoxClass}>
-                <Label htmlFor="fechaInicio">Fecha de inicio (referencia) *</Label>
-                {fe("fechaInicio") ? (
-                  <p className="text-destructive text-xs" id="fini-err" role="alert">
-                    {fe("fechaInicio")}
-                  </p>
-                ) : null}
-                <input
-                  className={inputClass}
-                  id="fechaInicio"
-                  name="fechaInicio"
-                  type="date"
-                  required
-                  defaultValue={dV("fechaInicio") || todayStr()}
-                  onChange={() => setClientDateError(null)}
-                  aria-describedby={fe("fechaInicio") ? "fini-err" : undefined}
-                />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={labelBoxClass}>
+                  <Label htmlFor="compromisoMinimoMeses">Compromiso mínimo o permanencia (meses) *</Label>
+                  {fe("compromisoMinimoMeses") ? (
+                    <p className="text-destructive text-xs" id="com-err" role="alert">
+                      {fe("compromisoMinimoMeses")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="compromisoMinimoMeses"
+                    name="compromisoMinimoMeses"
+                    type="number"
+                    min={0}
+                    max={120}
+                    required
+                    defaultValue={dV("compromisoMinimoMeses") || "12"}
+                    aria-describedby={fe("compromisoMinimoMeses") ? "com-err" : undefined}
+                  />
+                </div>
+                <div className={labelBoxClass}>
+                  <Label htmlFor="fechaInicio">Inicio de vigencia de la suscripción (referencia) *</Label>
+                  {fe("fechaInicio") ? (
+                    <p className="text-destructive text-xs" id="fini2-err" role="alert">
+                      {fe("fechaInicio")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="fechaInicio"
+                    name="fechaInicio"
+                    type="date"
+                    required
+                    defaultValue={dV("fechaInicio") || todayStr()}
+                    onChange={() => setClientDateError(null)}
+                    aria-describedby={fe("fechaInicio") ? "fini2-err" : undefined}
+                  />
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="fechaFinPlazo">Fecha de cierre, renovación o término del plazo inicial (opcional)</Label>
+                  {fe("fechaFinPlazo") ? (
+                    <p className="text-destructive text-xs" id="ffp-err" role="alert">
+                      {fe("fechaFinPlazo")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="fechaFinPlazo"
+                    name="fechaFinPlazo"
+                    type="date"
+                    defaultValue={dV("fechaFinPlazo")}
+                    onChange={() => setClientDateError(null)}
+                    aria-describedby={fe("fechaFinPlazo") ? "ffp-err" : undefined}
+                  />
+                </div>
               </div>
-              <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="fechaEntrega">Fecha de entrega estimada (opcional; si queda en blanco se indica en texto genérico)</Label>
-                {fe("fechaEntrega") ? (
-                  <p className="text-destructive text-xs" id="fent-err" role="alert">
-                    {fe("fechaEntrega")}
-                  </p>
-                ) : null}
-                <input
-                  className={inputClass}
-                  id="fechaEntrega"
-                  name="fechaEntrega"
-                  type="date"
-                  defaultValue={dV("fechaEntrega")}
-                  onChange={() => setClientDateError(null)}
-                  aria-describedby={fe("fechaEntrega") ? "fent-err" : undefined}
-                />
-              </div>
-            </div>
+            )}
           </section>
 
           <section className={stepWrap(4)} aria-labelledby="step-riesgo">
             <h3 id="step-riesgo" className="text-sm font-semibold text-foreground">
-              {STEPS[4]!.title}
+              {steps[4]!.title}
             </h3>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className={labelBoxClass}>
-                <Label htmlFor="mesesSoporte">Meses de soporte post-entrega *</Label>
-                {fe("mesesSoporte") ? (
-                  <p className="text-destructive text-xs" id="ms-err" role="alert">
-                    {fe("mesesSoporte")}
-                  </p>
-                ) : null}
-                <input
-                  className={inputClass}
-                  id="mesesSoporte"
-                  name="mesesSoporte"
-                  type="number"
-                  min={0}
-                  max={120}
-                  required
-                  defaultValue={dV("mesesSoporte") || "3"}
-                  aria-describedby={fe("mesesSoporte") ? "ms-err" : undefined}
-                />
-              </div>
-              <div className={labelBoxClass + " sm:col-span-2"}>
-                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                  <Label htmlFor="quienPoseeCodigo">Titularidad del código y entregables (tras pago) *</Label>
+            {kind === "DESARROLLO_SOFTWARE" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={labelBoxClass}>
+                  <Label htmlFor="mesesSoporte">Meses de soporte post-entrega *</Label>
+                  {fe("mesesSoporte") ? (
+                    <p className="text-destructive text-xs" id="ms-err" role="alert">
+                      {fe("mesesSoporte")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="mesesSoporte"
+                    name="mesesSoporte"
+                    type="number"
+                    min={0}
+                    max={120}
+                    required
+                    defaultValue={dV("mesesSoporte") || "3"}
+                    aria-describedby={fe("mesesSoporte") ? "ms-err" : undefined}
+                  />
                 </div>
-                {fe("quienPoseeCodigo") ? (
-                  <p id="quien-err" className="text-destructive text-xs" role="alert">
-                    {fe("quienPoseeCodigo")}
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor="quienPoseeCodigo">Titularidad del código y entregables (tras pago) *</Label>
+                  </div>
+                  {fe("quienPoseeCodigo") ? (
+                    <p id="quien-err" className="text-destructive text-xs" role="alert">
+                      {fe("quienPoseeCodigo")}
+                    </p>
+                  ) : null}
+                  <ContractRichTextField
+                    key={`rtf-quien-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="quienPoseeCodigo"
+                    id="quienPoseeCodigo"
+                    defaultValue={dV("quienPoseeCodigo")}
+                    maxLength={500}
+                    requiredField
+                    placeholder="Ej. EL CLIENTE, una vez abonado el ciento por ciento…"
+                    minHeightClass="min-h-[72px]"
+                    aria-describedby={["quien-c", fe("quienPoseeCodigo") && "quien-err"].filter(Boolean).join(" ")}
+                    aria-invalid={fe("quienPoseeCodigo") ? true : undefined}
+                    onPlainLengthChange={setFieldLen("quienPoseeCodigo")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="quien-c" aria-live="polite">
+                    {lens.quienPoseeCodigo} / 500
                   </p>
-                ) : null}
-                <ContractRichTextField
-                  key={`rtf-quien-${formRemountKey}`}
-                  remountKey={formRemountKey}
-                  name="quienPoseeCodigo"
-                  id="quienPoseeCodigo"
-                  defaultValue={dV("quienPoseeCodigo")}
-                  maxLength={500}
-                  requiredField
-                  placeholder="Ej. EL CLIENTE, una vez abonado el ciento por ciento…"
-                  minHeightClass="min-h-[72px]"
-                  aria-describedby={["quien-c", fe("quienPoseeCodigo") && "quien-err"].filter(Boolean).join(" ")}
-                  aria-invalid={fe("quienPoseeCodigo") ? true : undefined}
-                  onPlainLengthChange={setFieldLen("quienPoseeCodigo")}
-                />
-                <p className="text-right text-xs text-muted-foreground" id="quien-c" aria-live="polite">
-                  {lens.quienPoseeCodigo} / 500
-                </p>
-              </div>
-              <div className={labelBoxClass + " sm:col-span-2"}>
-                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                  <Label htmlFor="penalidadAtrasoPago">Penalidad o consecuencias por atraso en pago (opcional)</Label>
                 </div>
-                <ContractRichTextField
-                  key={`rtf-penalidad-${formRemountKey}`}
-                  remountKey={formRemountKey}
-                  name="penalidadAtrasoPago"
-                  id="penalidadAtrasoPago"
-                  defaultValue={dV("penalidadAtrasoPago")}
-                  maxLength={2000}
-                  placeholder="Ej. interés moratorio, suspensión de acceso, costos de reactivación…"
-                  minHeightClass="min-h-[72px]"
-                  onPlainLengthChange={setFieldLen("penalidadAtrasoPago")}
-                />
-                <p className="text-right text-xs text-muted-foreground" aria-live="polite">
-                  {lens.penalidadAtrasoPago} / 2000
-                </p>
-              </div>
-              <div className={labelBoxClass + " sm:col-span-2"}>
-                <Label htmlFor="jurisdiccion">Jurisdicción / leyes aplicables *</Label>
-                {fe("jurisdiccion") ? (
-                  <p id="juris-err" className="text-destructive text-xs" role="alert">
-                    {fe("jurisdiccion")}
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor="penalidadAtrasoPago">Penalidad o consecuencias por atraso en pago (opcional)</Label>
+                  </div>
+                  <ContractRichTextField
+                    key={`rtf-penalidad-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="penalidadAtrasoPago"
+                    id="penalidadAtrasoPago"
+                    defaultValue={dV("penalidadAtrasoPago")}
+                    maxLength={2000}
+                    placeholder="Ej. interés moratorio, suspensión de acceso, costos de reactivación…"
+                    minHeightClass="min-h-[72px]"
+                    onPlainLengthChange={setFieldLen("penalidadAtrasoPago")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                    {lens.penalidadAtrasoPago} / 2000
                   </p>
-                ) : null}
-                <input
-                  className={inputClass}
-                  id="jurisdiccion"
-                  name="jurisdiccion"
-                  required
-                  maxLength={500}
-                  defaultValue={dV("jurisdiccion")}
-                  aria-describedby={["jur-len", fe("jurisdiccion") && "juris-err"].filter(Boolean).join(" ")}
-                  onInput={(e) => handleUpdateLen("jurisdiccion")((e.target as HTMLInputElement).value)}
-                />
-                <p className="text-right text-xs text-muted-foreground" id="jur-len" aria-live="polite">
-                  {lens.jurisdiccion} / 500
-                </p>
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="jurisdiccion">Jurisdicción / leyes aplicables *</Label>
+                  {fe("jurisdiccion") ? (
+                    <p id="juris-err" className="text-destructive text-xs" role="alert">
+                      {fe("jurisdiccion")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="jurisdiccion"
+                    name="jurisdiccion"
+                    required
+                    maxLength={500}
+                    defaultValue={dV("jurisdiccion")}
+                    aria-describedby={["jur-len", fe("jurisdiccion") && "juris-err"].filter(Boolean).join(" ")}
+                    onInput={(e) => handleUpdateLen("jurisdiccion")((e.target as HTMLInputElement).value)}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="jur-len" aria-live="polite">
+                    {lens.jurisdiccion} / 500
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={labelBoxClass}>
+                  <Label htmlFor="mesesSoporte">Meses de soporte o mesa de ayuda incluidos (referencia) *</Label>
+                  {fe("mesesSoporte") ? (
+                    <p className="text-destructive text-xs" id="ms2-err" role="alert">
+                      {fe("mesesSoporte")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="mesesSoporte"
+                    name="mesesSoporte"
+                    type="number"
+                    min={0}
+                    max={120}
+                    required
+                    defaultValue={dV("mesesSoporte") || "3"}
+                    aria-describedby={fe("mesesSoporte") ? "ms2-err" : undefined}
+                  />
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="licenciaUso">Licencia de uso, datos en proveedor, titularidad (cloud) *</Label>
+                  {fe("licenciaUso") ? (
+                    <p id="lic-err" className="text-destructive text-xs" role="alert">
+                      {fe("licenciaUso")}
+                    </p>
+                  ) : null}
+                  <ContractRichTextField
+                    key={`rtf-lic-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="licenciaUso"
+                    id="licenciaUso"
+                    defaultValue={dV("licenciaUso")}
+                    maxLength={2000}
+                    requiredField
+                    placeholder="Derecho de acceso, datos alojados en tercero, no sublicencia, cese del acceso al vencimiento, etc."
+                    minHeightClass="min-h-[88px]"
+                    aria-describedby={["lic-c", fe("licenciaUso") && "lic-err"].filter(Boolean).join(" ")}
+                    onPlainLengthChange={setFieldLen("licenciaUso")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="lic-c" aria-live="polite">
+                    {lens.licenciaUso} / 2000
+                  </p>
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="disponibilidad">Disponibilidad, SLA, horario de soporte, exclusiones (opcional)</Label>
+                  <ContractRichTextField
+                    key={`rtf-sla-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="disponibilidad"
+                    id="disponibilidad"
+                    defaultValue={dV("disponibilidad")}
+                    maxLength={2000}
+                    placeholder="Ej. ~99% mensual (objetivo), excl. fuerza mayor, ventana de mantenimiento…"
+                    minHeightClass="min-h-[72px]"
+                    aria-describedby="dis-c"
+                    onPlainLengthChange={setFieldLen("disponibilidad")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="dis-c" aria-live="polite">
+                    {lens.disponibilidad} / 2000
+                  </p>
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor="penalidadAtrasoPago">Penalidad o suspensión por atraso en pago (opcional)</Label>
+                  </div>
+                  <ContractRichTextField
+                    key={`rtf-saas-penal-${formRemountKey}`}
+                    remountKey={formRemountKey}
+                    name="penalidadAtrasoPago"
+                    id="penalidadAtrasoPago"
+                    defaultValue={dV("penalidadAtrasoPago")}
+                    maxLength={2000}
+                    placeholder="Suspensión de acceso, interés, reactivación…"
+                    minHeightClass="min-h-[72px]"
+                    onPlainLengthChange={setFieldLen("penalidadAtrasoPago")}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" aria-live="polite">
+                    {lens.penalidadAtrasoPago} / 2000
+                  </p>
+                </div>
+                <div className={labelBoxClass + " sm:col-span-2"}>
+                  <Label htmlFor="jurisdiccion2">Jurisdicción / leyes aplicables *</Label>
+                  {fe("jurisdiccion") ? (
+                    <p id="juris2-err" className="text-destructive text-xs" role="alert">
+                      {fe("jurisdiccion")}
+                    </p>
+                  ) : null}
+                  <input
+                    className={inputClass}
+                    id="jurisdiccion2"
+                    name="jurisdiccion"
+                    required
+                    maxLength={500}
+                    defaultValue={dV("jurisdiccion")}
+                    aria-describedby={["jur2-len", fe("jurisdiccion") && "juris2-err"].filter(Boolean).join(" ")}
+                    onInput={(e) => handleUpdateLen("jurisdiccion")((e.target as HTMLInputElement).value)}
+                  />
+                  <p className="text-right text-xs text-muted-foreground" id="jur2-len" aria-live="polite">
+                    {lens.jurisdiccion} / 500
+                  </p>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className={stepWrap(5)} aria-labelledby="step-cierre">
             <h3 id="step-cierre" className="text-sm font-semibold text-foreground">
-              {STEPS[5]!.title}
+              {steps[5]!.title}
             </h3>
             <div className={labelBoxClass}>
               <Label htmlFor="fechaHoy">Fecha de firma del documento (referencia en el cierre) *</Label>
@@ -858,12 +1250,12 @@ export function ContractGeneratorForm() {
 
           <section className={stepWrap(6)} aria-labelledby="step-firmas">
             <h3 id="step-firmas" className="text-sm font-semibold text-foreground">
-              {STEPS[6]!.title}
+              {steps[6]!.title}
             </h3>
             <p className="text-sm text-muted-foreground" id="firmas-intro">
               En el PDF se añade una hoja con tres celdas alineadas (como en el esquema). Complete solo las que necesite; las
-              vacías quedan con espacio para firmar a mano al imprimir. Los trazos de este formulario se insertan bajo EL
-              PRESTADOR.
+              vacías quedan con espacio para firmar a mano al imprimir. Los trazos de este formulario se insertan bajo
+              {kind === "SAAS" ? " EL PROVEEDOR" : " EL PRESTADOR"}.
             </p>
             <div className={labelBoxClass}>
               <Label htmlFor="numFirmasUi">Firmas de colaborador a capturar</Label>

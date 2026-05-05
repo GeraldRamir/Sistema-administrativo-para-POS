@@ -1,9 +1,11 @@
 "use server";
 
-import { desarrolloSoftwareContractSchema } from "@/lib/validators";
+import { desarrolloSoftwareContractSchema, saasContractSchema } from "@/lib/validators";
 import type { ZodError } from "zod";
 import { buildDesarrolloSoftwarePdf } from "@/lib/contract-pdf/desarrollo-software-pdf";
+import { buildSaaSContractPdf } from "@/lib/contract-pdf/saas-pdf";
 import { desarrolloSoftwareFileName } from "@/lib/contract-templates/desarrollo-software";
+import { saasFileName } from "@/lib/contract-templates/saas";
 
 /** Tamaño máx. decodificado (PNG de firma dibujada en pantalla) */
 const MAX_SIGNATURE_PNG = 1_000_000;
@@ -66,8 +68,59 @@ export async function generateContractAction(
 ): Promise<ContractGenerateState> {
   const kind = String(formData.get("kind") ?? "").trim();
 
+  if (kind === "SAAS") {
+    const rawSaaS = {
+      empresaDesarrolladora: String(formData.get("empresaDesarrolladora") ?? ""),
+      representanteDesarrollador: String(formData.get("representanteDesarrollador") ?? ""),
+      clienteEmpresa: String(formData.get("clienteEmpresa") ?? ""),
+      nombreCliente: String(formData.get("nombreCliente") ?? ""),
+      nombreServicio: String(formData.get("nombreServicio") ?? ""),
+      descripcionAlcance: String(formData.get("descripcionAlcance") ?? ""),
+      monedaReferencia: String(formData.get("monedaReferencia") ?? "DOP"),
+      montoRecurrente: String(formData.get("montoRecurrente") ?? ""),
+      periodoFacturacion: String(formData.get("periodoFacturacion") ?? "MENSUAL"),
+      tarifaUnica: String(formData.get("tarifaUnica") ?? ""),
+      facturacionYrenovacion: String(formData.get("facturacionYrenovacion") ?? ""),
+      compromisoMinimoMeses: formData.get("compromisoMinimoMeses"),
+      fechaInicio: String(formData.get("fechaInicio") ?? ""),
+      fechaFinPlazo: String(formData.get("fechaFinPlazo") ?? ""),
+      integracionAccesos: String(formData.get("integracionAccesos") ?? ""),
+      disponibilidad: String(formData.get("disponibilidad") ?? ""),
+      licenciaUso: String(formData.get("licenciaUso") ?? ""),
+      mesesSoporte: formData.get("mesesSoporte"),
+      penalidadAtrasoPago: String(formData.get("penalidadAtrasoPago") ?? ""),
+      jurisdiccion: String(formData.get("jurisdiccion") ?? ""),
+      fechaHoy: String(formData.get("fechaHoy") ?? ""),
+    };
+
+    const parsedS = saasContractSchema.safeParse(rawSaaS);
+    if (!parsedS.success) {
+      return err("Revise los campos señalados e inténtelo de nuevo.", zodErrorToFieldMap(parsedS.error));
+    }
+
+    let sig1: Buffer | null = null;
+    let sig2: Buffer | null = null;
+    let sig3: Buffer | null = null;
+    try {
+      const g1 = formData.get("firmaColaborador1Png");
+      const g2 = formData.get("firmaColaborador2Png");
+      const g3 = formData.get("firmaColaborador3Png");
+      sig1 = pngBase64ToBuffer(typeof g1 === "string" ? g1 : null, "Colaborador 1");
+      sig2 = pngBase64ToBuffer(typeof g2 === "string" ? g2 : null, "Colaborador 2");
+      sig3 = pngBase64ToBuffer(typeof g3 === "string" ? g3 : null, "Colaborador 3");
+    } catch (e) {
+      return err(e instanceof Error ? e.message : "Error al leer la firma.");
+    }
+
+    const pdf = await buildSaaSContractPdf(parsedS.data, [sig1, sig2, sig3]);
+    return {
+      ok: true,
+      download: { name: saasFileName(parsedS.data.nombreServicio, "pdf"), pdfBase64: pdf.toString("base64") },
+    };
+  }
+
   if (kind !== "DESARROLLO_SOFTWARE") {
-    return err("Ese tipo de contrato aún no está disponible. Elija «Desarrollo de software».");
+    return err("Ese tipo de contrato aún no está disponible. Elija «Desarrollo de software» o «SaaS».");
   }
 
   const raw = {

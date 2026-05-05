@@ -84,3 +84,43 @@ export const desarrolloSoftwareContractSchema = z.object({
       path: ["fechaEntrega"],
     },
   );
+
+const periodoFacturacionSaaS = z.enum(["MENSUAL", "ANUAL", "TRIMESTRAL", "SEMESTRAL", "OTRO"]);
+
+/** Contrato de provisión de servicio SaaS (suscripción / nube) */
+export const saasContractSchema = z.object({
+  empresaDesarrolladora: z.string().min(1).max(300),
+  representanteDesarrollador: z.string().min(1).max(200),
+  clienteEmpresa: z.string().min(1).max(300),
+  nombreCliente: z.string().min(1).max(200),
+  nombreServicio: z.string().min(1).max(500),
+  descripcionAlcance: z.string().min(1).max(20000),
+  monedaReferencia: z.enum(["DOP", "USD", "LIBRE"]),
+  montoRecurrente: z.string().min(1).max(200),
+  periodoFacturacion: periodoFacturacionSaaS,
+  tarifaUnica: z.string().max(200).optional().or(z.literal("")),
+  facturacionYrenovacion: z.string().min(1).max(2000),
+  compromisoMinimoMeses: z.coerce.number().int().min(0, "Mínimo 0 meses").max(120),
+  fechaInicio: z.string().min(1).max(32),
+  fechaFinPlazo: z.string().max(32).optional().or(z.literal("")),
+  integracionAccesos: z.string().max(5000).optional().or(z.literal("")),
+  disponibilidad: z.string().max(2000).optional().or(z.literal("")),
+  licenciaUso: z.string().min(1).max(2000),
+  mesesSoporte: z.coerce.number().int().min(0, "Mínimo 0 meses").max(120),
+  penalidadAtrasoPago: z.string().max(2000).optional().or(z.literal("")),
+  jurisdiccion: z.string().min(1).max(500),
+  fechaHoy: z.string().min(1).max(32),
+})
+  .refine(
+    (d) => {
+      const fin = d.fechaFinPlazo?.trim() ?? "";
+      if (!fin) {
+        return true;
+      }
+      return fin >= d.fechaInicio;
+    },
+    {
+      message: "La fecha de fin de plazo no puede ser anterior a la de inicio de vigencia.",
+      path: ["fechaFinPlazo"],
+    },
+  );

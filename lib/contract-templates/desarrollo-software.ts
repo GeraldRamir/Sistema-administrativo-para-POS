@@ -1,10 +1,11 @@
 import type { z } from "zod";
 import { sanitizeContractText } from "@/lib/contract-text-sanitize";
 import { desarrolloSoftwareContractSchema } from "@/lib/validators";
+import type { FormalContractPdfModel } from "@/lib/contract-templates/formal-pdf-model";
 
 export type DesarrolloSoftwareInput = z.infer<typeof desarrolloSoftwareContractSchema>;
 
-function fmtDate(d: string): string {
+export function fmtDate(d: string): string {
   const t = Date.parse(d);
   if (Number.isNaN(t)) {
     return d;
@@ -12,7 +13,7 @@ function fmtDate(d: string): string {
   return new Date(t).toLocaleDateString("es-DO", { year: "numeric", month: "long", day: "numeric" });
 }
 
-function lineOrBlock(label: string, value: string | undefined, empty: string) {
+export function lineOrBlock(label: string, value: string | undefined, empty: string) {
   const v = value?.trim();
   if (!v) {
     return empty;
@@ -21,7 +22,7 @@ function lineOrBlock(label: string, value: string | undefined, empty: string) {
 }
 
 /** Párrafo informativo según moneda de referencia del formulario. */
-const monedaPrefijoContrato = (m: "DOP" | "USD" | "LIBRE") => {
+export const monedaPrefijoContrato = (m: "DOP" | "USD" | "LIBRE") => {
   if (m === "DOP") {
     return "Salvo otra indicación expresa en cifra, el marco de referencia de los importes de este acto es el peso dominicano (RD$). ";
   }
@@ -250,15 +251,7 @@ function mapPdfModelThroughSanitize(m: DesarrolloSoftwarePdfModel): DesarrolloSo
   };
 }
 
-/** Estructura para un PDF formal (secciones, partes, cierre). */
-export type DesarrolloSoftwarePdfModel = {
-  mainTitle: string;
-  documentKind: string;
-  leadIn: string;
-  partyRows: { label: string; role: string; name: string }[];
-  sections: { title: string; paragraphs: string[] }[];
-  closing: string[];
-};
+export type DesarrolloSoftwarePdfModel = FormalContractPdfModel;
 
 /**
  * Mismo contenido que el contrato, organizado en bloques para renderizado con diseño fijo.

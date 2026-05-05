@@ -12,7 +12,7 @@ export const CONTRACT_CATALOG = [
     id: "SAAS" as const,
     label: "SaaS / suscripción",
     description: "Acuerdo de servicio en la nube y facturación recurrente",
-    available: false,
+    available: true,
   },
   {
     id: "MANTENIMIENTO" as const,
